@@ -1,0 +1,28 @@
+# Rust
+/target/
+Cargo.lock
+
+# Noir
+circuits/target/
+circuits/proofs/
+*.proof
+*.vk
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
