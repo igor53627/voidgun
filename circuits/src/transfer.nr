@@ -1,5 +1,6 @@
 use poseidon2::bn254::{hash_2, hash_3, hash_4};
 use keccak256::keccak256;
+use std::ecdsa_secp256k1::verify_signature;
 
 global TREE_DEPTH: u32 = 20;
 
@@ -9,6 +10,16 @@ global DOMAIN_COMMITMENT: Field = 0;
 global DOMAIN_MERKLE_NODE: Field = 1;
 global DOMAIN_NULLIFIER: Field = 2;
 global DOMAIN_KEY_DERIVATION: Field = 3;
+
+// secp256k1 n/2 for low-S malleability check (big-endian bytes)
+// n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+// n/2 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
+global SECP256K1_N_OVER_2: [u8; 32] = [
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d,
+    0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
+];
 
 struct Note {
     rk_hash: Field,      // hash of receiving key
@@ -50,6 +61,26 @@ fn derive_rk_hash(nk: Field) -> Field {
     let ek_x = hash_3([DOMAIN_KEY_DERIVATION, nk, 1]);
     let ek_y = hash_3([DOMAIN_KEY_DERIVATION, nk, 2]);
     hash_4([DOMAIN_KEY_DERIVATION, pnk, ek_x, ek_y])
+}
+
+/// Check that signature S component is in lower half (s <= n/2)
+/// This prevents signature malleability where (r, s) can be transformed to (r, n-s)
+/// Signature format: [r: 32 bytes, s: 32 bytes] big-endian
+fn is_low_s(signature: [u8; 64]) -> bool {
+    let mut result: i8 = 0; // 0 = equal so far, 1 = less, -1 = greater
+    for i in 0..32 {
+        let s_byte = signature[32 + i];
+        let n2_byte = SECP256K1_N_OVER_2[i];
+        
+        if result == 0 {
+            if s_byte < n2_byte {
+                result = 1;
+            } else if s_byte > n2_byte {
+                result = -1;
+            }
+        }
+    }
+    result >= 0
 }
 
 /// Compute Merkle root from leaf and path with domain-separated hashing
@@ -128,13 +159,13 @@ pub fn transfer(
     recipient_pk_y: [u8; 32],
 ) {
     // ============================================
-    // 1. Verify ECDSA signature (placeholder)
+    // 1. Verify ECDSA signature with low-S check
     // ============================================
-    // TODO: Add ECDSA verification when available in stdlib
-    let _ = signature[0];
-    let _ = tx_hash[0];
-    let _ = pub_key_x[0];
-    let _ = pub_key_y[0];
+    // std::ecdsa_secp256k1::verify_signature enforces s <= n/2 (BIP-62 style)
+    // We add an explicit low-S check for defense-in-depth
+    assert(is_low_s(signature), "Signature S must be in lower half (malleability protection)");
+    let is_valid_sig = verify_signature(pub_key_x, pub_key_y, signature, tx_hash);
+    assert(is_valid_sig, "Invalid ECDSA secp256k1 signature");
     
     // ============================================
     // 2. Verify sender owns the input note
