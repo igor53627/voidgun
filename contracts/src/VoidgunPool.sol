@@ -29,8 +29,8 @@ contract VoidgunPool is ReentrancyGuard {
     uint256 private constant TRANSFER_PUBLIC_INPUTS_LENGTH = 9;
     
     /// @notice Expected public inputs length for withdrawal
-    /// [root, nfNote, nfTx, value, tokenType, poolId]
-    uint256 private constant WITHDRAW_PUBLIC_INPUTS_LENGTH = 6;
+    /// [root, nfNote, nfTx, value, tokenType, recipient, poolId]
+    uint256 private constant WITHDRAW_PUBLIC_INPUTS_LENGTH = 7;
     
     // ============================================
     // Errors
@@ -50,6 +50,8 @@ contract VoidgunPool is ReentrancyGuard {
     error InvalidPoolId();
     error ValueMismatch();
     error TokenMismatch();
+    error RecipientMismatch();
+    error InvalidRecipient();
     error ETHTransferFailed();
     error Poseidon2CallFailed();
     
@@ -254,9 +256,9 @@ contract VoidgunPool is ReentrancyGuard {
     
     /// @notice Withdraw tokens from the shielded pool
     /// @param publicInputs Array of public inputs for withdrawal circuit
-    ///        [root, nfNote, nfTx, value, tokenType, poolId]
+    ///        [root, nfNote, nfTx, value, tokenType, recipient, poolId]
     /// @param proof The zk proof bytes
-    /// @param to Recipient address
+    /// @param to Recipient address (must match proof)
     /// @param token Token address
     /// @param value Amount to withdraw
     function withdraw(
@@ -267,16 +269,21 @@ contract VoidgunPool is ReentrancyGuard {
         uint256 value
     ) external nonReentrant {
         if (publicInputs.length != WITHDRAW_PUBLIC_INPUTS_LENGTH) revert InvalidPublicInputsLength();
+        if (to == address(0)) revert InvalidRecipient();
         
         uint256 root = publicInputs[0];
         uint256 nfNote = publicInputs[1];
         uint256 nfTx = publicInputs[2];
         uint256 proofValue = publicInputs[3];
         uint256 proofTokenType = publicInputs[4];
-        uint256 proofPoolId = publicInputs[5];
+        uint256 proofRecipient = publicInputs[5];
+        uint256 proofPoolId = publicInputs[6];
         
         // Verify pool binding
         if (proofPoolId != poolId) revert InvalidPoolId();
+        
+        // Verify recipient matches proof (prevents relayer from redirecting funds)
+        if (proofRecipient != uint256(uint160(to))) revert RecipientMismatch();
         
         // Verify value matches proof
         if (proofValue != value) revert ValueMismatch();

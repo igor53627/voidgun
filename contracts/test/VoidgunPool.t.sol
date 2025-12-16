@@ -297,13 +297,14 @@ contract VoidgunPoolTest is Test {
         
         uint256 bobBalanceBefore = bob.balance;
         
-        uint256[] memory publicInputs = new uint256[](6);
+        uint256[] memory publicInputs = new uint256[](7);
         publicInputs[0] = pool.currentRoot();
         publicInputs[1] = 444; // nfNote
         publicInputs[2] = 555; // nfTx
         publicInputs[3] = 1 ether; // value
         publicInputs[4] = 0;   // tokenType (ETH)
-        publicInputs[5] = pool.poolId();
+        publicInputs[5] = uint256(uint160(bob)); // recipient
+        publicInputs[6] = pool.poolId();
         
         pool.withdraw(publicInputs, hex"00", bob, address(0), 1 ether);
         
@@ -317,13 +318,14 @@ contract VoidgunPoolTest is Test {
         pool.deposit(111, 100 ether, address(token), hex"");
         vm.stopPrank();
         
-        uint256[] memory publicInputs = new uint256[](6);
+        uint256[] memory publicInputs = new uint256[](7);
         publicInputs[0] = pool.currentRoot();
         publicInputs[1] = 444;
         publicInputs[2] = 555;
         publicInputs[3] = 50 ether;
         publicInputs[4] = uint256(uint160(address(token)));
-        publicInputs[5] = pool.poolId();
+        publicInputs[5] = uint256(uint160(bob)); // recipient
+        publicInputs[6] = pool.poolId();
         
         pool.withdraw(publicInputs, hex"00", bob, address(token), 50 ether);
         
@@ -334,10 +336,11 @@ contract VoidgunPoolTest is Test {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](6);
+        uint256[] memory publicInputs = new uint256[](7);
         publicInputs[0] = pool.currentRoot();
         publicInputs[3] = 1 ether; // proof says 1 ether
-        publicInputs[5] = pool.poolId();
+        publicInputs[5] = uint256(uint160(bob));
+        publicInputs[6] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.ValueMismatch.selector);
         pool.withdraw(publicInputs, hex"00", bob, address(0), 2 ether); // but trying to withdraw 2
@@ -347,13 +350,43 @@ contract VoidgunPoolTest is Test {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](6);
+        uint256[] memory publicInputs = new uint256[](7);
         publicInputs[0] = pool.currentRoot();
         publicInputs[3] = 1 ether;
         publicInputs[4] = 0; // proof says ETH
-        publicInputs[5] = pool.poolId();
+        publicInputs[5] = uint256(uint160(bob));
+        publicInputs[6] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.TokenMismatch.selector);
         pool.withdraw(publicInputs, hex"00", bob, address(token), 1 ether); // but passing token
+    }
+    
+    function test_RevertRecipientMismatch() public {
+        vm.prank(alice);
+        pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
+        
+        uint256[] memory publicInputs = new uint256[](7);
+        publicInputs[0] = pool.currentRoot();
+        publicInputs[1] = 444;
+        publicInputs[2] = 555;
+        publicInputs[3] = 1 ether;
+        publicInputs[4] = 0;
+        publicInputs[5] = uint256(uint160(bob)); // proof says bob
+        publicInputs[6] = pool.poolId();
+        
+        vm.expectRevert(VoidgunPool.RecipientMismatch.selector);
+        pool.withdraw(publicInputs, hex"00", alice, address(0), 1 ether); // but trying to send to alice
+    }
+    
+    function test_RevertInvalidRecipient() public {
+        vm.prank(alice);
+        pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
+        
+        uint256[] memory publicInputs = new uint256[](7);
+        publicInputs[0] = pool.currentRoot();
+        publicInputs[6] = pool.poolId();
+        
+        vm.expectRevert(VoidgunPool.InvalidRecipient.selector);
+        pool.withdraw(publicInputs, hex"00", address(0), address(0), 1 ether);
     }
 }
