@@ -14,6 +14,7 @@ fn hash_node(left: Field, right: Field) -> Field {
 /// Compute the root of a Merkle tree given a leaf, its path, and index
 pub fn compute_root(leaf: Field, path: [Field; TREE_DEPTH], index: Field) -> Field {
     let mut current = leaf;
+    // Note: Bit width must match TREE_DEPTH (20)
     let index_bits = index.to_le_bits::<20>();
     
     for i in 0..TREE_DEPTH {

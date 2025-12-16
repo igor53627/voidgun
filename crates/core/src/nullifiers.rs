@@ -3,6 +3,7 @@ use ark_ff::AdditiveGroup;
 use alloy_primitives::Address;
 
 use crate::poseidon2::hash_4;
+use crate::utils::address_to_field;
 
 /// Pool contract address - included in nullifiers for cross-pool replay protection
 /// This should be set to the actual deployed VoidgunPool address
@@ -47,13 +48,6 @@ pub fn pool_id_field() -> Field {
     Field::from_be_bytes_mod_order(POOL_ID)
 }
 
-fn address_to_field(addr: Address) -> Field {
-    use ark_ff::PrimeField;
-    let mut bytes = [0u8; 32];
-    bytes[12..32].copy_from_slice(addr.as_slice());
-    Field::from_be_bytes_mod_order(&bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +76,21 @@ mod tests {
         let nf_sepolia = tx_nullifier(nk, 11155111, pool_id, from, nonce);
         
         assert_ne!(nf_mainnet, nf_sepolia, "Same tx should have different nullifiers on different chains");
+    }
+    
+    #[test]
+    fn test_tx_nullifier_different_pools() {
+        let nk = Field::from(12345u64);
+        let chain_id = 1u64;
+        let from = Address::ZERO;
+        let nonce = 0u64;
+        
+        let pool1 = Field::from(1u64);
+        let pool2 = Field::from(2u64);
+        
+        let nf_pool1 = tx_nullifier(nk, chain_id, pool1, from, nonce);
+        let nf_pool2 = tx_nullifier(nk, chain_id, pool2, from, nonce);
+        
+        assert_ne!(nf_pool1, nf_pool2, "Same tx should have different nullifiers on different pools");
     }
 }

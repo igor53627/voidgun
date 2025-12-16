@@ -84,6 +84,7 @@ contract VoidgunPool {
     // ============================================
     
     constructor(address _verifier, address _poseidon2) {
+        require(_verifier != address(0), "Invalid verifier address");
         require(_poseidon2 != address(0), "Invalid Poseidon2 address");
         verifier = IVerifier(_verifier);
         poseidon2 = _poseidon2;

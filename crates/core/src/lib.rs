@@ -5,6 +5,7 @@ pub mod notes;
 pub mod nullifiers;
 pub mod poseidon2;
 pub mod tx;
+pub mod utils;
 
 pub use keys::{ViewingKey, ReceivingKey};
 pub use notes::{Note, NoteInfo};
