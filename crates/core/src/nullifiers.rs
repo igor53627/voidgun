@@ -1,23 +1,50 @@
 use ark_bn254::Fr as Field;
+use ark_ff::AdditiveGroup;
 use alloy_primitives::Address;
 
-/// Compute note nullifier
-/// nf_note = Poseidon2(cm, nk)
+use crate::poseidon2::hash_4;
+
+/// Pool contract address - included in nullifiers for cross-pool replay protection
+/// This should be set to the actual deployed VoidgunPool address
+pub const POOL_ID: &[u8] = b"voidgun-pool-v1";
+
+/// Domain separation tag for nullifiers
+const DOMAIN_NULLIFIER: u64 = 2;
+
+/// Compute note nullifier with domain separation
+/// nf_note = hash_3([DOMAIN_NULLIFIER, cm, nk])
 pub fn note_nullifier(cm: Field, nk: Field) -> Field {
-    poseidon2_hash(&[cm, nk])
+    use crate::poseidon2::hash_3;
+    hash_3(Field::from(DOMAIN_NULLIFIER), cm, nk)
 }
 
-/// Compute transaction nullifier
-/// nf_tx = Poseidon2(nk, chain_id, from, nonce)
+/// Compute transaction nullifier with cross-chain/pool replay protection
+/// Uses sponge-style construction matching Noir circuit:
+/// intermediate = hash_4([DOMAIN_NULLIFIER, nk, chain_id, 0])
+/// nf_tx = hash_4([intermediate, pool_id, from, nonce])
 /// 
-/// This binds the shielded transfer to a specific wallet transaction,
-/// preventing the proxy from replaying the same signed transaction.
-pub fn tx_nullifier(nk: Field, chain_id: u64, from: Address, nonce: u64) -> Field {
+/// This binds the shielded transfer to:
+/// - A specific wallet transaction (from + nonce)
+/// - A specific chain (chain_id)
+/// - A specific pool deployment (pool_id)
+/// 
+/// This prevents:
+/// - Proxy replaying the same signed transaction
+/// - Cross-chain replay attacks
+/// - Cross-pool replay if multiple pools exist
+pub fn tx_nullifier(nk: Field, chain_id: u64, pool_id: Field, from: Address, nonce: u64) -> Field {
     let chain_id_field = Field::from(chain_id);
     let from_field = address_to_field(from);
     let nonce_field = Field::from(nonce);
     
-    poseidon2_hash(&[nk, chain_id_field, from_field, nonce_field])
+    let intermediate = hash_4(Field::from(DOMAIN_NULLIFIER), nk, chain_id_field, Field::ZERO);
+    hash_4(intermediate, pool_id, from_field, nonce_field)
+}
+
+/// Get the pool ID as a field element
+pub fn pool_id_field() -> Field {
+    use ark_ff::PrimeField;
+    Field::from_be_bytes_mod_order(POOL_ID)
 }
 
 fn address_to_field(addr: Address) -> Field {
@@ -25,15 +52,6 @@ fn address_to_field(addr: Address) -> Field {
     let mut bytes = [0u8; 32];
     bytes[12..32].copy_from_slice(addr.as_slice());
     Field::from_be_bytes_mod_order(&bytes)
-}
-
-// TODO: Implement actual Poseidon2 hash
-fn poseidon2_hash(inputs: &[Field]) -> Field {
-    let mut acc = Field::from(0u64);
-    for (i, input) in inputs.iter().enumerate() {
-        acc += *input * Field::from(i as u64 + 1);
-    }
-    acc
 }
 
 #[cfg(test)]
@@ -44,11 +62,25 @@ mod tests {
     fn test_tx_nullifier_different_nonces() {
         let nk = Field::from(12345u64);
         let chain_id = 1u64;
+        let pool_id = pool_id_field();
         let from = Address::ZERO;
         
-        let nf1 = tx_nullifier(nk, chain_id, from, 0);
-        let nf2 = tx_nullifier(nk, chain_id, from, 1);
+        let nf1 = tx_nullifier(nk, chain_id, pool_id, from, 0);
+        let nf2 = tx_nullifier(nk, chain_id, pool_id, from, 1);
         
         assert_ne!(nf1, nf2);
+    }
+    
+    #[test]
+    fn test_tx_nullifier_different_chains() {
+        let nk = Field::from(12345u64);
+        let pool_id = pool_id_field();
+        let from = Address::ZERO;
+        let nonce = 0u64;
+        
+        let nf_mainnet = tx_nullifier(nk, 1, pool_id, from, nonce);
+        let nf_sepolia = tx_nullifier(nk, 11155111, pool_id, from, nonce);
+        
+        assert_ne!(nf_mainnet, nf_sepolia, "Same tx should have different nullifiers on different chains");
     }
 }

@@ -27,6 +27,28 @@ Voidgun implements a "proxy without spending authority" model where:
                    Zero-knowledge proof
 ```
 
+## How It Works (User Flow)
+
+### 1. Setup (one-time, ~30 seconds)
+1. Connect your existing wallet to the Voidgun app
+2. Add "Voidgun" as a custom RPC network in your wallet
+3. Sign a message to derive your privacy keys (no new seed phrase needed)
+4. Keys are registered with the key server
+
+### 2. Shield Funds
+1. Deposit ETH/tokens to the VoidgunPool contract
+2. Compliance check runs (rejects illicit funds per Privacy Pools model)
+3. Your balance becomes a shielded "Note" in the UTXO pool
+
+### 3. Transact Privately
+1. Use your wallet normally (connected to Voidgun network)
+2. The local proxy intercepts your transaction
+3. ZK proof is generated proving your signature authorizes the spend
+4. Relayer submits the shielded tx on-chain
+5. Recipient gets a new Note, you get change
+
+After setup, everything is transparent - just use your wallet as usual.
+
 ## Security Model
 
 Unlike other privacy protocols where the app holds spending keys, Voidgun:
