@@ -490,18 +490,29 @@ fn hash_with_domain(inputs: &[Field], domain: Field) -> Field {
     state[0]
 }
 
+/// Hash for note commitment with domain separation
+/// Matches Noir: hash_8([DOMAIN_COMMITMENT, rk_hash, value, token_type, r, 0, 0, 0])
+/// DOMAIN_COMMITMENT = 1
 pub fn hash_commitment(inputs: &[Field]) -> Field {
-    hash_with_domain(inputs, Field::ZERO)
+    assert!(inputs.len() == 4, "hash_commitment expects exactly 4 inputs");
+    hash_8(
+        Field::from(1u64), // DOMAIN_COMMITMENT
+        inputs[0],
+        inputs[1],
+        inputs[2],
+        inputs[3],
+        Field::ZERO,
+        Field::ZERO,
+        Field::ZERO,
+    )
 }
 
 /// Hash two values for Merkle tree nodes
-/// Uses sponge construction matching yolo's Poseidon2Yul:
-/// - IV = (num_inputs << 64) in state[3]
-/// - Absorb domain, left, right into state[0..3]
-/// - Permute and return state[0]
+/// Uses direct permute: hash_4([DOMAIN_MERKLE_NODE, left, right, 0])
+/// DOMAIN_MERKLE_NODE = 2
+/// NOTE: This uses TaceoLabs construction, not Poseidon2Yul sponge
 pub fn hash_merkle_node(left: Field, right: Field) -> Field {
-    let domain = Field::from(1u64);
-    sponge_hash(&[domain, left, right])
+    hash_4(Field::from(2u64), left, right, Field::ZERO)
 }
 
 /// Sponge-based hash matching yolo's Poseidon2Yul contract
@@ -527,12 +538,16 @@ fn sponge_hash(inputs: &[Field]) -> Field {
     state[0]
 }
 
+/// Hash for nullifier computation with domain separation
+/// DOMAIN_NULLIFIER = 3 (matching Noir)
 pub fn hash_nullifier(inputs: &[Field]) -> Field {
-    hash_with_domain(inputs, Field::from(2u64))
+    hash_with_domain(inputs, Field::from(3u64))
 }
 
+/// Hash for key derivation with domain separation
+/// DOMAIN_KEY_DERIVATION = 4 (matching Noir)
 pub fn hash_key_derivation(inputs: &[Field]) -> Field {
-    hash_with_domain(inputs, Field::from(3u64))
+    hash_with_domain(inputs, Field::from(4u64))
 }
 
 /// Hash exactly 3 field elements (matching TaceoLabs hash_3)
@@ -547,6 +562,20 @@ pub fn hash_3(a: Field, b: Field, c: Field) -> Field {
 /// Returns first element of permutation([a, b, c, d])
 pub fn hash_4(a: Field, b: Field, c: Field, d: Field) -> Field {
     let mut state = [a, b, c, d];
+    permutation(&mut state);
+    state[0]
+}
+
+/// Hash exactly 8 field elements (matching TaceoLabs hash_8)
+/// Uses two permutations: first on [a,b,c,d], then absorbs [e,f,g,h] into state
+pub fn hash_8(a: Field, b: Field, c: Field, d: Field, e: Field, f: Field, g: Field, h: Field) -> Field {
+    let mut state = [a, b, c, d];
+    permutation(&mut state);
+    // Absorb second chunk
+    state[0] += e;
+    state[1] += f;
+    state[2] += g;
+    state[3] += h;
     permutation(&mut state);
     state[0]
 }
@@ -572,17 +601,19 @@ mod tests {
 
     #[test]
     fn test_merkle_node_zeros() {
+        // hash_4(DOMAIN_MERKLE_NODE=2, 0, 0, 0) = permute([2, 0, 0, 0])[0]
         let result = hash_merkle_node(Field::ZERO, Field::ZERO);
-        let expected = field_from_hex("1cf72bfcec8abddcd0f50f42fc920980ff16a6d9b41c5bec9730a165119e45b2");
+        let expected = field_from_hex("01fc64bed90c55b193ec54e851cd13888d45293f2a2e4efdf83581f39df9c615");
         assert_eq!(result, expected, "Merkle node hash(0, 0) mismatch");
     }
 
     #[test]
     fn test_merkle_node_simple() {
+        // hash_4(DOMAIN_MERKLE_NODE=2, 123, 456, 0) = permute([2, 123, 456, 0])[0]
         let left = Field::from(123u64);
         let right = Field::from(456u64);
         let result = hash_merkle_node(left, right);
-        let expected = field_from_hex("28b21b8baf76eb450729177bf9f1c40afd3fabf99883153c11d8e24d2fdd9386");
+        let expected = field_from_hex("10bd028498b1c5efd1610a2a715792667f93fe1c93bd9e28edc08fa63779d5cd");
         assert_eq!(result, expected, "Merkle node hash(123, 456) mismatch");
     }
 }

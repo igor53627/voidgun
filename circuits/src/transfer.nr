@@ -1,4 +1,4 @@
-use poseidon2::bn254::{hash_2, hash_3, hash_4};
+use poseidon2::bn254::hash_4;
 use keccak256::keccak256;
 use std::ecdsa_secp256k1::verify_signature;
 
@@ -6,10 +6,37 @@ global TREE_DEPTH: u32 = 20;
 
 // Domain separation tags for Poseidon2 hashing
 // These prevent collision attacks between different hash usages
-global DOMAIN_COMMITMENT: Field = 0;
-global DOMAIN_MERKLE_NODE: Field = 1;
-global DOMAIN_NULLIFIER: Field = 2;
-global DOMAIN_KEY_DERIVATION: Field = 3;
+// Using non-zero values to ensure domain separation is active
+global DOMAIN_COMMITMENT: Field = 1;
+global DOMAIN_MERKLE_NODE: Field = 2;
+global DOMAIN_NULLIFIER: Field = 3;
+global DOMAIN_KEY_DERIVATION: Field = 4;
+
+/// Hash with domain separation using direct permute (TaceoLabs hash_4)
+/// This matches Rust's direct permute construction
+/// For on-chain verification, use sponge_hash_N functions below
+fn hash_with_domain_3(domain: Field, a: Field, b: Field) -> Field {
+    hash_4([domain, a, b, 0])
+}
+
+fn hash_with_domain_4(domain: Field, a: Field, b: Field, c: Field) -> Field {
+    hash_4([domain, a, b, c])
+}
+
+/// Check if a field element fits in 64 bits (value < 2^64)
+fn assert_u64(value: Field) {
+    let bits = value.to_le_bits::<64>();
+    // Reconstruct from bits to verify no overflow
+    let mut reconstructed: Field = 0;
+    let mut power: Field = 1;
+    for i in 0..64 {
+        if bits[i] == 1 {
+            reconstructed += power;
+        }
+        power *= 2;
+    }
+    assert(reconstructed == value);
+}
 
 // secp256k1 n/2 for low-S malleability check (big-endian bytes)
 // n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
@@ -29,38 +56,38 @@ struct Note {
 }
 
 /// Compute note commitment with domain separation
-/// cm = hash(DOMAIN_COMMITMENT, rk_hash, value, token_type, r)
+/// Uses two hash_4 calls: first = hash(domain, rk, value, token), then hash(first, r, 0, 0)
 fn commit_note(note: Note) -> Field {
-    // Use hash_4 with domain tag embedded in first element
-    let combined_domain = DOMAIN_COMMITMENT * 0x1000000000000000000000000000000000000000000000000 + note.rk_hash;
-    hash_4([combined_domain, note.value, note.token_type, note.r])
+    let first = hash_4([DOMAIN_COMMITMENT, note.rk_hash, note.value, note.token_type]);
+    hash_4([first, note.r, 0, 0])
 }
 
 /// Compute Merkle node hash with domain separation
+/// Uses hash_4([domain, left, right, 0])
 fn hash_merkle_node(left: Field, right: Field) -> Field {
-    hash_3([DOMAIN_MERKLE_NODE, left, right])
+    hash_with_domain_3(DOMAIN_MERKLE_NODE, left, right)
 }
 
 /// Compute note nullifier with domain separation
+/// Uses hash_4([domain, cm, nk, 0])
 fn compute_nullifier(cm: Field, nk: Field) -> Field {
-    hash_3([DOMAIN_NULLIFIER, cm, nk])
+    hash_with_domain_3(DOMAIN_NULLIFIER, cm, nk)
 }
 
 /// Compute transaction nullifier with domain separation and pool binding
-/// Uses sponge-style construction matching Rust: hash_4 twice with domain
-/// nf_tx = hash_4([intermediate, pool_id, from, nonce])
-/// where intermediate = hash_4([DOMAIN_NULLIFIER, nk, chain_id, 0])
+/// Uses two hash_4 calls to chain the 6 inputs
 fn compute_tx_nullifier(nk: Field, chain_id: Field, pool_id: Field, from: Field, nonce: Field) -> Field {
-    let intermediate = hash_4([DOMAIN_NULLIFIER, nk, chain_id, 0]);
-    hash_4([intermediate, pool_id, from, nonce])
+    let intermediate = hash_4([DOMAIN_NULLIFIER, nk, chain_id, pool_id]);
+    hash_4([intermediate, from, nonce, 0])
 }
 
 /// Derive receiving key hash from nullifying key
+/// Uses hash_4 for all sub-hashes
 fn derive_rk_hash(nk: Field) -> Field {
-    let pnk = hash_2([DOMAIN_KEY_DERIVATION, nk]);
-    let ek_x = hash_3([DOMAIN_KEY_DERIVATION, nk, 1]);
-    let ek_y = hash_3([DOMAIN_KEY_DERIVATION, nk, 2]);
-    hash_4([DOMAIN_KEY_DERIVATION, pnk, ek_x, ek_y])
+    let pnk = hash_with_domain_3(DOMAIN_KEY_DERIVATION, nk, 0);
+    let ek_x = hash_with_domain_3(DOMAIN_KEY_DERIVATION, nk, 1);
+    let ek_y = hash_with_domain_3(DOMAIN_KEY_DERIVATION, nk, 2);
+    hash_with_domain_4(DOMAIN_KEY_DERIVATION, pnk, ek_x, ek_y)
 }
 
 /// Check that signature S component is in lower half (s <= n/2)
@@ -216,8 +243,14 @@ pub fn transfer(
     assert(cm_change_computed == cm_change, "Change commitment mismatch");
     
     // ============================================
-    // 5. Value conservation
+    // 5. Value conservation with range checks
     // ============================================
+    // Range checks prevent field wraparound attacks
+    assert_u64(note_in_value);
+    assert_u64(note_out_value);
+    assert_u64(note_change_value);
+    assert_u64(tx_value);
+    
     assert(note_in_value == note_out_value + note_change_value, "Value not conserved");
     assert(note_in_token == token_type, "Token type mismatch");
     
