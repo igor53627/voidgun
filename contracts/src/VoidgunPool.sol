@@ -262,8 +262,8 @@ contract VoidgunPool {
     
     /// @notice Hash two values together using Poseidon2 with domain separation
     /// @dev Uses Poseidon2Yul sponge: IV = (3 << 64), absorbs [DOMAIN_MERKLE_NODE, left, right]
-    /// TODO: This uses sponge construction. Noir circuit uses direct permute hash_4([domain, left, right, 0]).
-    /// These need to be aligned for cross-language consistency.
+    /// This matches Noir circuit: Poseidon2::hash([DOMAIN_MERKLE_NODE, left, right], 3)
+    /// and Rust: sponge_hash(&[DOMAIN_MERKLE_NODE, left, right])
     function hashPair(uint256 left, uint256 right) internal view returns (uint256 result) {
         address hasher = poseidon2;
         assembly {

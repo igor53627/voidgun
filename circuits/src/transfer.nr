@@ -1,4 +1,4 @@
-use poseidon2::bn254::hash_4;
+use dep::poseidon::poseidon2::Poseidon2;
 use keccak256::keccak256;
 use std::ecdsa_secp256k1::verify_signature;
 
@@ -11,17 +11,6 @@ global DOMAIN_COMMITMENT: Field = 1;
 global DOMAIN_MERKLE_NODE: Field = 2;
 global DOMAIN_NULLIFIER: Field = 3;
 global DOMAIN_KEY_DERIVATION: Field = 4;
-
-/// Hash with domain separation using direct permute (TaceoLabs hash_4)
-/// This matches Rust's direct permute construction
-/// For on-chain verification, use sponge_hash_N functions below
-fn hash_with_domain_3(domain: Field, a: Field, b: Field) -> Field {
-    hash_4([domain, a, b, 0])
-}
-
-fn hash_with_domain_4(domain: Field, a: Field, b: Field, c: Field) -> Field {
-    hash_4([domain, a, b, c])
-}
 
 /// Check if a field element fits in 64 bits (value < 2^64)
 fn assert_u64(value: Field) {
@@ -56,38 +45,36 @@ struct Note {
 }
 
 /// Compute note commitment with domain separation
-/// Uses two hash_4 calls: first = hash(domain, rk, value, token), then hash(first, r, 0, 0)
+/// Uses sponge hash matching Poseidon2Yul: H(domain, rk, value, token, r)
 fn commit_note(note: Note) -> Field {
-    let first = hash_4([DOMAIN_COMMITMENT, note.rk_hash, note.value, note.token_type]);
-    hash_4([first, note.r, 0, 0])
+    Poseidon2::hash([DOMAIN_COMMITMENT, note.rk_hash, note.value, note.token_type, note.r], 5)
 }
 
 /// Compute Merkle node hash with domain separation
-/// Uses hash_4([domain, left, right, 0])
+/// Uses sponge hash: H(domain, left, right)
 fn hash_merkle_node(left: Field, right: Field) -> Field {
-    hash_with_domain_3(DOMAIN_MERKLE_NODE, left, right)
+    Poseidon2::hash([DOMAIN_MERKLE_NODE, left, right], 3)
 }
 
 /// Compute note nullifier with domain separation
-/// Uses hash_4([domain, cm, nk, 0])
+/// Uses sponge hash: H(domain, cm, nk)
 fn compute_nullifier(cm: Field, nk: Field) -> Field {
-    hash_with_domain_3(DOMAIN_NULLIFIER, cm, nk)
+    Poseidon2::hash([DOMAIN_NULLIFIER, cm, nk], 3)
 }
 
 /// Compute transaction nullifier with domain separation and pool binding
-/// Uses two hash_4 calls to chain the 6 inputs
+/// Uses sponge hash: H(domain, nk, chain_id, pool_id, from, nonce)
 fn compute_tx_nullifier(nk: Field, chain_id: Field, pool_id: Field, from: Field, nonce: Field) -> Field {
-    let intermediate = hash_4([DOMAIN_NULLIFIER, nk, chain_id, pool_id]);
-    hash_4([intermediate, from, nonce, 0])
+    Poseidon2::hash([DOMAIN_NULLIFIER, nk, chain_id, pool_id, from, nonce], 6)
 }
 
 /// Derive receiving key hash from nullifying key
-/// Uses hash_4 for all sub-hashes
+/// Uses sponge hash for all sub-hashes
 fn derive_rk_hash(nk: Field) -> Field {
-    let pnk = hash_with_domain_3(DOMAIN_KEY_DERIVATION, nk, 0);
-    let ek_x = hash_with_domain_3(DOMAIN_KEY_DERIVATION, nk, 1);
-    let ek_y = hash_with_domain_3(DOMAIN_KEY_DERIVATION, nk, 2);
-    hash_with_domain_4(DOMAIN_KEY_DERIVATION, pnk, ek_x, ek_y)
+    let pnk = Poseidon2::hash([DOMAIN_KEY_DERIVATION, nk, 0], 3);
+    let ek_x = Poseidon2::hash([DOMAIN_KEY_DERIVATION, nk, 1], 3);
+    let ek_y = Poseidon2::hash([DOMAIN_KEY_DERIVATION, nk, 2], 3);
+    Poseidon2::hash([DOMAIN_KEY_DERIVATION, pnk, ek_x, ek_y], 4)
 }
 
 /// Check that signature S component is in lower half (s <= n/2)

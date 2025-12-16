@@ -10,13 +10,12 @@ contract Poseidon2Test is Test {
     address poseidon2;
 
     function setUp() public {
-        // Deploy Poseidon2 contract
-        bytes memory bytecode = vm.getCode("Poseidon2.sol:Poseidon2");
+        bytes memory bytecode = vm.getCode("Poseidon2.sol:Poseidon2Yul");
         address deployed;
         assembly {
             deployed := create(0, add(bytecode, 0x20), mload(bytecode))
         }
-        require(deployed != address(0), "Poseidon2 deployment failed");
+        require(deployed != address(0), "Poseidon2Yul deployment failed");
         poseidon2 = deployed;
     }
 

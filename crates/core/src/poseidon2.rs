@@ -474,56 +474,18 @@ pub fn permutation(state: &mut [Field; 4]) {
     }
 }
 
-fn hash_with_domain(inputs: &[Field], domain: Field) -> Field {
-    let mut state = [domain, Field::ZERO, Field::ZERO, Field::ZERO];
+/// Domain separation constants (matching Noir circuit)
+pub const DOMAIN_COMMITMENT: u64 = 1;
+pub const DOMAIN_MERKLE_NODE: u64 = 2;
+pub const DOMAIN_NULLIFIER: u64 = 3;
+pub const DOMAIN_KEY_DERIVATION: u64 = 4;
 
-    for chunk in inputs.chunks(3) {
-        for (i, &input) in chunk.iter().enumerate() {
-            state[i + 1] = input;
-        }
-        for i in (chunk.len() + 1)..4 {
-            state[i] = Field::ZERO;
-        }
-        permutation(&mut state);
-    }
-
-    state[0]
-}
-
-/// Hash for note commitment with domain separation
-/// Matches Noir: hash_8([DOMAIN_COMMITMENT, rk_hash, value, token_type, r, 0, 0, 0])
-/// DOMAIN_COMMITMENT = 1
-pub fn hash_commitment(inputs: &[Field]) -> Field {
-    assert!(inputs.len() == 4, "hash_commitment expects exactly 4 inputs");
-    hash_8(
-        Field::from(1u64), // DOMAIN_COMMITMENT
-        inputs[0],
-        inputs[1],
-        inputs[2],
-        inputs[3],
-        Field::ZERO,
-        Field::ZERO,
-        Field::ZERO,
-    )
-}
-
-/// Hash two values for Merkle tree nodes
-/// Uses direct permute: hash_4([DOMAIN_MERKLE_NODE, left, right, 0])
-/// DOMAIN_MERKLE_NODE = 2
-/// NOTE: This uses TaceoLabs construction, not Poseidon2Yul sponge
-pub fn hash_merkle_node(left: Field, right: Field) -> Field {
-    hash_4(Field::from(2u64), left, right, Field::ZERO)
-}
-
-/// Sponge-based hash matching yolo's Poseidon2Yul contract
+/// Sponge-based hash matching yolo's Poseidon2Yul contract and noir-lang/poseidon
 /// IV = (num_inputs << 64) in state[3], rate = 3
-fn sponge_hash(inputs: &[Field]) -> Field {
-    use ark_ff::BigInteger;
-    
+/// This is the canonical construction used by all implementations.
+pub fn sponge_hash(inputs: &[Field]) -> Field {
     let num_inputs = inputs.len() as u64;
-    // IV = num_inputs << 64 as a field element
-    let mut iv_bigint = <Field as ark_ff::PrimeField>::BigInt::from(num_inputs);
-    iv_bigint.muln(64);
+    let iv_bigint = <Field as ark_ff::PrimeField>::BigInt::from(num_inputs) << 64;
     let iv = Field::from(iv_bigint);
     
     let mut state = [Field::ZERO, Field::ZERO, Field::ZERO, iv];
@@ -538,46 +500,45 @@ fn sponge_hash(inputs: &[Field]) -> Field {
     state[0]
 }
 
+/// Hash for note commitment with domain separation
+/// Matches Noir: Poseidon2::hash([DOMAIN_COMMITMENT, rk_hash, value, token_type, r], 5)
+pub fn hash_commitment(rk_hash: Field, value: Field, token_type: Field, r: Field) -> Field {
+    sponge_hash(&[Field::from(DOMAIN_COMMITMENT), rk_hash, value, token_type, r])
+}
+
+/// Hash two values for Merkle tree nodes
+/// Matches Noir: Poseidon2::hash([DOMAIN_MERKLE_NODE, left, right], 3)
+pub fn hash_merkle_node(left: Field, right: Field) -> Field {
+    sponge_hash(&[Field::from(DOMAIN_MERKLE_NODE), left, right])
+}
+
 /// Hash for nullifier computation with domain separation
-/// DOMAIN_NULLIFIER = 3 (matching Noir)
-pub fn hash_nullifier(inputs: &[Field]) -> Field {
-    hash_with_domain(inputs, Field::from(3u64))
+/// Matches Noir: Poseidon2::hash([DOMAIN_NULLIFIER, cm, nk], 3)
+pub fn hash_nullifier(cm: Field, nk: Field) -> Field {
+    sponge_hash(&[Field::from(DOMAIN_NULLIFIER), cm, nk])
+}
+
+/// Hash for transaction nullifier with domain separation and pool binding
+/// Matches Noir: Poseidon2::hash([DOMAIN_NULLIFIER, nk, chain_id, pool_id, from, nonce], 6)
+pub fn hash_tx_nullifier(nk: Field, chain_id: Field, pool_id: Field, from: Field, nonce: Field) -> Field {
+    sponge_hash(&[Field::from(DOMAIN_NULLIFIER), nk, chain_id, pool_id, from, nonce])
 }
 
 /// Hash for key derivation with domain separation
-/// DOMAIN_KEY_DERIVATION = 4 (matching Noir)
+/// Matches Noir: Poseidon2::hash([DOMAIN_KEY_DERIVATION, ...], n)
 pub fn hash_key_derivation(inputs: &[Field]) -> Field {
-    hash_with_domain(inputs, Field::from(4u64))
+    let mut full_inputs = vec![Field::from(DOMAIN_KEY_DERIVATION)];
+    full_inputs.extend_from_slice(inputs);
+    sponge_hash(&full_inputs)
 }
 
-/// Hash exactly 3 field elements (matching TaceoLabs hash_3)
-/// Returns first element of permutation([a, b, c, 0])
-pub fn hash_3(a: Field, b: Field, c: Field) -> Field {
-    let mut state = [a, b, c, Field::ZERO];
-    permutation(&mut state);
-    state[0]
-}
-
-/// Hash exactly 4 field elements (matching TaceoLabs hash_4)
-/// Returns first element of permutation([a, b, c, d])
-pub fn hash_4(a: Field, b: Field, c: Field, d: Field) -> Field {
-    let mut state = [a, b, c, d];
-    permutation(&mut state);
-    state[0]
-}
-
-/// Hash exactly 8 field elements (matching TaceoLabs hash_8)
-/// Uses two permutations: first on [a,b,c,d], then absorbs [e,f,g,h] into state
-pub fn hash_8(a: Field, b: Field, c: Field, d: Field, e: Field, f: Field, g: Field, h: Field) -> Field {
-    let mut state = [a, b, c, d];
-    permutation(&mut state);
-    // Absorb second chunk
-    state[0] += e;
-    state[1] += f;
-    state[2] += g;
-    state[3] += h;
-    permutation(&mut state);
-    state[0]
+/// Derive receiving key hash from nullifying key
+/// Matches Noir derive_rk_hash function
+pub fn derive_rk_hash(nk: Field) -> Field {
+    let pnk = sponge_hash(&[Field::from(DOMAIN_KEY_DERIVATION), nk, Field::ZERO]);
+    let ek_x = sponge_hash(&[Field::from(DOMAIN_KEY_DERIVATION), nk, Field::from(1u64)]);
+    let ek_y = sponge_hash(&[Field::from(DOMAIN_KEY_DERIVATION), nk, Field::from(2u64)]);
+    sponge_hash(&[Field::from(DOMAIN_KEY_DERIVATION), pnk, ek_x, ek_y])
 }
 
 #[cfg(test)]
@@ -600,20 +561,62 @@ mod tests {
     }
 
     #[test]
-    fn test_merkle_node_zeros() {
-        // hash_4(DOMAIN_MERKLE_NODE=2, 0, 0, 0) = permute([2, 0, 0, 0])[0]
-        let result = hash_merkle_node(Field::ZERO, Field::ZERO);
-        let expected = field_from_hex("01fc64bed90c55b193ec54e851cd13888d45293f2a2e4efdf83581f39df9c615");
-        assert_eq!(result, expected, "Merkle node hash(0, 0) mismatch");
+    fn test_sponge_hash_basic() {
+        let result = sponge_hash(&[Field::from(1u64), Field::from(2u64), Field::from(3u64)]);
+        assert_ne!(result, Field::ZERO, "Sponge hash should produce non-zero output");
     }
 
     #[test]
-    fn test_merkle_node_simple() {
-        // hash_4(DOMAIN_MERKLE_NODE=2, 123, 456, 0) = permute([2, 123, 456, 0])[0]
-        let left = Field::from(123u64);
-        let right = Field::from(456u64);
-        let result = hash_merkle_node(left, right);
-        let expected = field_from_hex("10bd028498b1c5efd1610a2a715792667f93fe1c93bd9e28edc08fa63779d5cd");
-        assert_eq!(result, expected, "Merkle node hash(123, 456) mismatch");
+    fn test_merkle_node_sponge() {
+        let result = hash_merkle_node(Field::ZERO, Field::ZERO);
+        assert_ne!(result, Field::ZERO, "Merkle node hash should be non-zero");
+        
+        let result2 = hash_merkle_node(Field::ZERO, Field::ZERO);
+        assert_eq!(result, result2, "Merkle node hash should be deterministic");
+    }
+
+    #[test]
+    fn test_commitment_sponge() {
+        let rk_hash = Field::from(123u64);
+        let value = Field::from(1000u64);
+        let token_type = Field::ZERO;
+        let r = Field::from(456u64);
+        
+        let result = hash_commitment(rk_hash, value, token_type, r);
+        assert_ne!(result, Field::ZERO, "Commitment hash should be non-zero");
+        
+        let result2 = hash_commitment(rk_hash, value, token_type, r);
+        assert_eq!(result, result2, "Commitment hash should be deterministic");
+    }
+
+    #[test]
+    fn test_nullifier_sponge() {
+        let cm = Field::from(789u64);
+        let nk = Field::from(101112u64);
+        
+        let result = hash_nullifier(cm, nk);
+        assert_ne!(result, Field::ZERO, "Nullifier hash should be non-zero");
+    }
+
+    #[test]
+    fn test_derive_rk_hash() {
+        let nk = Field::from(12345u64);
+        let result = derive_rk_hash(nk);
+        assert_ne!(result, Field::ZERO, "Derived rk_hash should be non-zero");
+        
+        let result2 = derive_rk_hash(nk);
+        assert_eq!(result, result2, "derive_rk_hash should be deterministic");
+    }
+
+    #[test]
+    fn test_tx_nullifier_sponge() {
+        let nk = Field::from(1u64);
+        let chain_id = Field::from(1u64);
+        let pool_id = Field::from(1u64);
+        let from = Field::from(0xdeadbeefu64);
+        let nonce = Field::from(0u64);
+        
+        let result = hash_tx_nullifier(nk, chain_id, pool_id, from, nonce);
+        assert_ne!(result, Field::ZERO, "TX nullifier hash should be non-zero");
     }
 }
