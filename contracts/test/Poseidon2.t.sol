@@ -10,17 +10,16 @@ contract Poseidon2Test is Test {
     address poseidon2;
 
     function setUp() public {
-        // Deploy Poseidon2 contract
-        bytes memory bytecode = vm.getCode("Poseidon2.sol:Poseidon2");
+        bytes memory bytecode = vm.getCode("Poseidon2.sol:Poseidon2Yul");
         address deployed;
         assembly {
             deployed := create(0, add(bytecode, 0x20), mload(bytecode))
         }
-        require(deployed != address(0), "Poseidon2 deployment failed");
+        require(deployed != address(0), "Poseidon2Yul deployment failed");
         poseidon2 = deployed;
     }
 
-    /// @notice Call Poseidon2 with 3 inputs (for Merkle node: domain=1, left, right)
+    /// @notice Call Poseidon2 with 3 inputs (for Merkle node: domain=2, left, right)
     function hash3(uint256 a, uint256 b, uint256 c) internal view returns (uint256 result) {
         bytes memory input = abi.encodePacked(a, b, c);
         (bool success, bytes memory output) = poseidon2.staticcall(input);
@@ -36,19 +35,19 @@ contract Poseidon2Test is Test {
         result = abi.decode(output, (uint256));
     }
 
-    /// @notice Test Merkle node hash(0, 0) matches Rust sponge construction
-    /// @dev hash_merkle_node(0, 0) using sponge with IV = 3 << 64
+    /// @notice Test Merkle node hash(0, 0)
+    /// @dev All implementations (Noir, Rust, Solidity) now use sponge: IV = num_inputs << 64
     function test_MerkleNodeZeros() public view {
-        uint256 result = hash3(1, 0, 0);
-        uint256 expected = 0x1cf72bfcec8abddcd0f50f42fc920980ff16a6d9b41c5bec9730a165119e45b2;
-        assertEq(result, expected, "Merkle node hash(0, 0) mismatch");
+        uint256 result = hash3(2, 0, 0);
+        // Poseidon2Yul sponge output for hash(2, 0, 0)
+        assertTrue(result != 0, "Hash should produce non-zero output");
     }
 
-    /// @notice Test Merkle node hash(123, 456) matches Rust sponge construction
+    /// @notice Test Merkle node hash(123, 456)
+    /// @dev Solidity uses yolo's Poseidon2Yul sponge construction
     function test_MerkleNodeSimple() public view {
-        uint256 result = hash3(1, 123, 456);
-        uint256 expected = 0x28b21b8baf76eb450729177bf9f1c40afd3fabf99883153c11d8e24d2fdd9386;
-        assertEq(result, expected, "Merkle node hash(123, 456) mismatch");
+        uint256 result = hash3(2, 123, 456);
+        assertTrue(result != 0, "Hash should produce non-zero output");
     }
 
     /// @notice Test 4-input hash (used for nullifiers and key derivation)
@@ -80,5 +79,33 @@ contract Poseidon2Test is Test {
         assertTrue(success, "Empty input should succeed");
         uint256 result = abi.decode(output, (uint256));
         assertEq(result, 0, "Empty input should return zero");
+    }
+
+    /// @notice Cross-language test vectors - must match Rust and Noir implementations
+    /// @dev These vectors are generated from the Rust poseidon2.rs implementation
+    function test_CrossLanguageVectors() public view {
+        uint256 merkle_00 = hash3(2, 0, 0);
+        assertEq(
+            merkle_00,
+            0x1218536453df604871fd18460a1d5c2abf9d9cfcda586312bfc3b78d75e29cf0,
+            "merkle_node(0,0) must match Rust/Noir"
+        );
+
+        uint256 merkle_123_456 = hash3(2, 123, 456);
+        assertEq(
+            merkle_123_456,
+            0x24cbf5ece05503c37381b5d7dfcaf96fe2aca3749cb1a5d4d2f5264e40872fa2,
+            "merkle_node(123,456) must match Rust/Noir"
+        );
+
+        bytes memory input = abi.encodePacked(uint256(1), uint256(2), uint256(3));
+        (bool success, bytes memory output) = poseidon2.staticcall(input);
+        assertTrue(success, "hash([1,2,3]) call failed");
+        uint256 hash_1_2_3 = abi.decode(output, (uint256));
+        assertEq(
+            hash_1_2_3,
+            0x23864adb160dddf590f1d3303683ebcb914f828e2635f6e85a32f0a1aecd3dd8,
+            "sponge_hash([1,2,3]) must match Rust/Noir"
+        );
     }
 }

@@ -1,28 +1,22 @@
 use ark_bn254::Fr as Field;
-use ark_ff::AdditiveGroup;
 use alloy_primitives::Address;
 
-use crate::poseidon2::hash_4;
+use crate::poseidon2::{hash_nullifier, hash_tx_nullifier};
 use crate::utils::address_to_field;
 
 /// Pool contract address - included in nullifiers for cross-pool replay protection
 /// This should be set to the actual deployed VoidgunPool address
 pub const POOL_ID: &[u8] = b"voidgun-pool-v1";
 
-/// Domain separation tag for nullifiers
-const DOMAIN_NULLIFIER: u64 = 2;
-
 /// Compute note nullifier with domain separation
-/// nf_note = hash_3([DOMAIN_NULLIFIER, cm, nk])
+/// nf_note = Poseidon2::hash([DOMAIN_NULLIFIER, cm, nk], 3)
 pub fn note_nullifier(cm: Field, nk: Field) -> Field {
-    use crate::poseidon2::hash_3;
-    hash_3(Field::from(DOMAIN_NULLIFIER), cm, nk)
+    hash_nullifier(cm, nk)
 }
 
 /// Compute transaction nullifier with cross-chain/pool replay protection
-/// Uses sponge-style construction matching Noir circuit:
-/// intermediate = hash_4([DOMAIN_NULLIFIER, nk, chain_id, 0])
-/// nf_tx = hash_4([intermediate, pool_id, from, nonce])
+/// Uses sponge construction matching Noir circuit:
+/// nf_tx = Poseidon2::hash([DOMAIN_NULLIFIER, nk, chain_id, pool_id, from, nonce], 6)
 /// 
 /// This binds the shielded transfer to:
 /// - A specific wallet transaction (from + nonce)
@@ -38,8 +32,7 @@ pub fn tx_nullifier(nk: Field, chain_id: u64, pool_id: Field, from: Address, non
     let from_field = address_to_field(from);
     let nonce_field = Field::from(nonce);
     
-    let intermediate = hash_4(Field::from(DOMAIN_NULLIFIER), nk, chain_id_field, Field::ZERO);
-    hash_4(intermediate, pool_id, from_field, nonce_field)
+    hash_tx_nullifier(nk, chain_id_field, pool_id, from_field, nonce_field)
 }
 
 /// Get the pool ID as a field element

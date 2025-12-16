@@ -41,18 +41,18 @@ impl Note {
     }
     
     /// Compute note commitment
-    /// cm = Poseidon2(DOMAIN_COMMITMENT, rk_hash, value, token_type, r)
+    /// cm = Poseidon2::hash([DOMAIN_COMMITMENT, rk_hash, value, token_type, r], 5)
     pub fn commitment(&self) -> Field {
         let value_field = u256_to_field(self.value);
         let token_field = address_to_field(self.token_type);
-        hash_commitment(&[self.rk_hash, value_field, token_field, self.r])
+        hash_commitment(self.rk_hash, value_field, token_field, self.r)
     }
     
     /// Compute note nullifier given the nullifying key
-    /// nf = Poseidon2(DOMAIN_NULLIFIER, cm, nk)
+    /// nf = Poseidon2::hash([DOMAIN_NULLIFIER, cm, nk], 3)
     pub fn nullifier(&self, nk: Field) -> Field {
         let cm = self.commitment();
-        hash_nullifier(&[cm, nk])
+        hash_nullifier(cm, nk)
     }
 }
 

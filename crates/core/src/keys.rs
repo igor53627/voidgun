@@ -49,11 +49,11 @@ impl ViewingKey {
     
     /// Derive the corresponding receiving key
     pub fn to_receiving_key(&self) -> ReceivingKey {
-        let pnk = hash_key_derivation(&[self.nk]);
+        let pnk = hash_key_derivation(&[self.nk, Field::from(0u64)]);
         // Simplified: ek = ivk * G, but we just store the scalar for now
         // In practice, need to do scalar multiplication on embedded curve
-        let ek_x = self.ivk;
-        let ek_y = Field::from(0u64); // Placeholder
+        let ek_x = hash_key_derivation(&[self.nk, Field::from(1u64)]);
+        let ek_y = hash_key_derivation(&[self.nk, Field::from(2u64)]);
         
         ReceivingKey {
             pk: self.pk.clone(),

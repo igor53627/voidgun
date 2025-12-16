@@ -15,7 +15,8 @@ contract VoidgunPool {
     uint256 public constant ROOT_HISTORY_SIZE = 100;
     
     /// @notice Domain separation tag for Merkle node hashing
-    uint256 private constant DOMAIN_MERKLE_NODE = 1;
+    /// Must match Noir circuit: DOMAIN_MERKLE_NODE = 2
+    uint256 private constant DOMAIN_MERKLE_NODE = 2;
     
     // ============================================
     // State
@@ -260,7 +261,9 @@ contract VoidgunPool {
     }
     
     /// @notice Hash two values together using Poseidon2 with domain separation
-    /// @dev Uses domain tag 1 for Merkle nodes: hash(DOMAIN_MERKLE_NODE, left, right)
+    /// @dev Uses Poseidon2Yul sponge: IV = (3 << 64), absorbs [DOMAIN_MERKLE_NODE, left, right]
+    /// This matches Noir circuit: Poseidon2::hash([DOMAIN_MERKLE_NODE, left, right], 3)
+    /// and Rust: sponge_hash(&[DOMAIN_MERKLE_NODE, left, right])
     function hashPair(uint256 left, uint256 right) internal view returns (uint256 result) {
         address hasher = poseidon2;
         assembly {

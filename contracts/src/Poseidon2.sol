@@ -14,7 +14,7 @@
 // FIX Issue #100: Pin pragma for consistent bytecode
 pragma solidity 0.8.31;
 
-contract Poseidon2 {
+contract Poseidon2Yul {
     /// @dev Memory-safe: Pure Yul implementation using only fixed memory locations (0x00-0xc0),
     /// calldata, and stack. Never interacts with Solidity's free memory pointer.
     fallback() external {

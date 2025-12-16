@@ -1,20 +1,16 @@
-use poseidon2::bn254::hash_3;
+use dep::poseidon::poseidon2::Poseidon2;
 
 global TREE_DEPTH: u32 = 20;
 global EMPTY_LEAF: Field = 0;
 
-// Domain separation tag for Merkle nodes
-global DOMAIN_MERKLE_NODE: Field = 1;
+global DOMAIN_MERKLE_NODE: Field = 2;
 
-/// Hash two children to get parent node (with domain separation)
 fn hash_node(left: Field, right: Field) -> Field {
-    hash_3([DOMAIN_MERKLE_NODE, left, right])
+    Poseidon2::hash([DOMAIN_MERKLE_NODE, left, right], 3)
 }
 
-/// Compute the root of a Merkle tree given a leaf, its path, and index
 pub fn compute_root(leaf: Field, path: [Field; TREE_DEPTH], index: Field) -> Field {
     let mut current = leaf;
-    // Note: Bit width must match TREE_DEPTH (20)
     let index_bits = index.to_le_bits::<20>();
     
     for i in 0..TREE_DEPTH {
@@ -31,12 +27,10 @@ pub fn compute_root(leaf: Field, path: [Field; TREE_DEPTH], index: Field) -> Fie
     current
 }
 
-/// Verify a Merkle proof
 pub fn verify_proof(leaf: Field, path: [Field; TREE_DEPTH], index: Field, root: Field) -> bool {
     compute_root(leaf, path, index) == root
 }
 
-/// Compute empty tree root (all leaves are EMPTY_LEAF)
 pub fn empty_root() -> Field {
     let mut current = EMPTY_LEAF;
     
