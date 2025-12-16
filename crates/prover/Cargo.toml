@@ -1,0 +1,19 @@
+[package]
+name = "voidgun-prover"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+voidgun-core.workspace = true
+ark-bn254.workspace = true
+ark-ff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+# For calling nargo at build time

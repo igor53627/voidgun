@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/prover",
+    "crates/contracts",
+    "crates/reth-plugin",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/igor53627/voidgun"
+
+[workspace.dependencies]
+# Crypto
+ark-ff = "0.5"
+ark-bn254 = "0.5"
+ark-ed-on-bn254 = "0.5"
+ark-serialize = "0.5"
+poseidon2 = { git = "https://github.com/HorizenLabs/poseidon2" }
+
+# Ethereum
+alloy-primitives = "0.8"
+alloy-sol-types = "0.8"
+alloy-rlp = "0.3"
+alloy-consensus = "0.6"
+k256 = { version = "0.13", features = ["ecdsa"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+eyre = "0.6"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+
+# Storage
+sled = "0.34"
+
+# Internal crates
+voidgun-core = { path = "crates/core" }
+voidgun-prover = { path = "crates/prover" }
+voidgun-contracts = { path = "crates/contracts" }

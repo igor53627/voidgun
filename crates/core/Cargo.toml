@@ -1,0 +1,15 @@
+[package]
+name = "voidgun-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ark-ff.workspace = true
+ark-bn254.workspace = true
+ark-serialize.workspace = true
+alloy-primitives.workspace = true
+alloy-rlp.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+rand = "0.8"
