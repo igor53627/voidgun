@@ -26,7 +26,7 @@ pub fn derive_viewing_key_components(seed: Field) -> (Field, Field, Field) {
 }
 
 pub fn derive_pnk(nk: Field) -> Field {
-    Poseidon2::hash([DOMAIN_KEY_DERIVATION, nk], 2)
+    Poseidon2::hash([DOMAIN_KEY_DERIVATION, nk, 0], 3)
 }
 
 pub fn hash_receiving_key(pnk: Field, ek_x: Field, ek_y: Field) -> Field {
