@@ -1,4 +1,7 @@
-use std::hash::poseidon2::Poseidon2;
+use poseidon2::bn254::{hash_2, hash_3, hash_4};
+
+// Domain separation tag for key derivation
+global DOMAIN_KEY_DERIVATION: Field = 3;
 
 /// Viewing Key components derived from wallet signature
 struct ViewingKey {
@@ -19,24 +22,19 @@ struct ReceivingKey {
 }
 
 /// Derive viewing key components from signature seed
-/// seed = Poseidon2(signature)
-/// nk = Poseidon2(seed, 1)
-/// ivk = Poseidon2(seed, 2)
-/// ovk = Poseidon2(seed, 3)
 pub fn derive_viewing_key_components(seed: Field) -> (Field, Field, Field) {
-    let nk = Poseidon2::hash([seed, 1], 2);
-    let ivk = Poseidon2::hash([seed, 2], 2);
-    let ovk = Poseidon2::hash([seed, 3], 2);
+    let nk = hash_3([DOMAIN_KEY_DERIVATION, seed, 1]);
+    let ivk = hash_3([DOMAIN_KEY_DERIVATION, seed, 2]);
+    let ovk = hash_3([DOMAIN_KEY_DERIVATION, seed, 3]);
     (nk, ivk, ovk)
 }
 
 /// Derive public nullifying key from nullifying key
-/// pnk = Poseidon2(nk)
 pub fn derive_pnk(nk: Field) -> Field {
-    Poseidon2::hash([nk], 1)
+    hash_2([DOMAIN_KEY_DERIVATION, nk])
 }
 
 /// Hash a receiving key for use in note commitments
 pub fn hash_receiving_key(pnk: Field, ek_x: Field, ek_y: Field) -> Field {
-    Poseidon2::hash([pnk, ek_x, ek_y], 3)
+    hash_4([DOMAIN_KEY_DERIVATION, pnk, ek_x, ek_y])
 }

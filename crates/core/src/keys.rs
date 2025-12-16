@@ -1,6 +1,8 @@
 use ark_bn254::Fr as Field;
 use ark_ff::{BigInteger, PrimeField};
 
+use crate::poseidon2::hash_key_derivation;
+
 /// Viewing Key - grants view access to account transaction history
 /// Derived deterministically from wallet signature of EXPORT_VK_MESSAGE
 #[derive(Clone, Debug)]
@@ -37,17 +39,17 @@ impl ViewingKey {
     /// 3. ivk = Poseidon2(seed, 2)
     /// 4. ovk = Poseidon2(seed, 3)
     pub fn derive(pk: Vec<u8>, signature: &[u8]) -> Self {
-        let seed = poseidon2_hash(&[field_from_bytes(signature)]);
-        let nk = poseidon2_hash(&[seed, Field::from(1u64)]);
-        let ivk = poseidon2_hash(&[seed, Field::from(2u64)]);
-        let ovk = poseidon2_hash(&[seed, Field::from(3u64)]);
+        let seed = hash_key_derivation(&[field_from_bytes(signature)]);
+        let nk = hash_key_derivation(&[seed, Field::from(1u64)]);
+        let ivk = hash_key_derivation(&[seed, Field::from(2u64)]);
+        let ovk = hash_key_derivation(&[seed, Field::from(3u64)]);
         
         Self { pk, nk, ivk, ovk }
     }
     
     /// Derive the corresponding receiving key
     pub fn to_receiving_key(&self) -> ReceivingKey {
-        let pnk = poseidon2_hash(&[self.nk]);
+        let pnk = hash_key_derivation(&[self.nk]);
         // Simplified: ek = ivk * G, but we just store the scalar for now
         // In practice, need to do scalar multiplication on embedded curve
         let ek_x = self.ivk;
@@ -100,17 +102,8 @@ impl ViewingKey {
 impl ReceivingKey {
     /// Hash the receiving key for use in note commitments
     pub fn hash(&self) -> Field {
-        poseidon2_hash(&[self.pnk, self.ek_x, self.ek_y])
+        hash_key_derivation(&[self.pnk, self.ek_x, self.ek_y])
     }
-}
-
-// TODO: Implement actual Poseidon2 hash
-fn poseidon2_hash(inputs: &[Field]) -> Field {
-    let mut acc = Field::from(0u64);
-    for (i, input) in inputs.iter().enumerate() {
-        acc += *input * Field::from(i as u64 + 1);
-    }
-    acc
 }
 
 fn field_from_bytes(bytes: &[u8]) -> Field {

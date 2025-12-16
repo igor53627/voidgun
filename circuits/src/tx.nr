@@ -1,4 +1,4 @@
-use std::hash::keccak256;
+use keccak256::keccak256;
 
 /// EIP-1559 transaction fields relevant for shielding
 struct Eip1559Tx {
@@ -9,7 +9,6 @@ struct Eip1559Tx {
     gas_limit: Field,
     to: [u8; 20],
     value: Field,
-    // data and access_list omitted for simple transfers
 }
 
 /// Derive Ethereum address from uncompressed secp256k1 public key
@@ -21,7 +20,7 @@ pub fn pubkey_to_address(pk_x: [u8; 32], pk_y: [u8; 32]) -> [u8; 20] {
         pk_bytes[i + 32] = pk_y[i];
     }
     
-    let hash = keccak256(pk_bytes, 64);
+    let hash: [u8; 32] = keccak256(pk_bytes, 64);
     
     let mut address: [u8; 20] = [0; 20];
     for i in 0..20 {

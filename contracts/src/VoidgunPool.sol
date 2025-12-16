@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.31;
 
 import "./IVerifier.sol";
 
@@ -14,12 +14,18 @@ contract VoidgunPool {
     uint256 public constant TREE_DEPTH = 20;
     uint256 public constant ROOT_HISTORY_SIZE = 100;
     
+    /// @notice Domain separation tag for Merkle node hashing
+    uint256 private constant DOMAIN_MERKLE_NODE = 1;
+    
     // ============================================
     // State
     // ============================================
     
     /// @notice The verifier contract for zk proofs
     IVerifier public immutable verifier;
+    
+    /// @notice The Poseidon2 hasher contract
+    address public immutable poseidon2;
     
     /// @notice Current Merkle root
     uint256 public currentRoot;
@@ -77,8 +83,11 @@ contract VoidgunPool {
     // Constructor
     // ============================================
     
-    constructor(address _verifier) {
+    constructor(address _verifier, address _poseidon2) {
+        require(_verifier != address(0), "Invalid verifier address");
+        require(_poseidon2 != address(0), "Invalid Poseidon2 address");
         verifier = IVerifier(_verifier);
+        poseidon2 = _poseidon2;
         
         // Initialize zero values for empty tree
         zeros[0] = 0;
@@ -250,11 +259,20 @@ contract VoidgunPool {
         nextIndex = index + 1;
     }
     
-    /// @notice Hash two values together (Poseidon2 placeholder)
-    /// @dev TODO: Replace with actual Poseidon2 implementation
-    function hashPair(uint256 left, uint256 right) internal pure returns (uint256) {
-        // Placeholder - use keccak256 until Poseidon2 is implemented
-        return uint256(keccak256(abi.encodePacked(left, right))) % 
-            21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    /// @notice Hash two values together using Poseidon2 with domain separation
+    /// @dev Uses domain tag 1 for Merkle nodes: hash(DOMAIN_MERKLE_NODE, left, right)
+    function hashPair(uint256 left, uint256 right) internal view returns (uint256 result) {
+        address hasher = poseidon2;
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, DOMAIN_MERKLE_NODE)
+            mstore(add(ptr, 0x20), left)
+            mstore(add(ptr, 0x40), right)
+            
+            let success := staticcall(gas(), hasher, ptr, 0x60, ptr, 0x20)
+            if iszero(success) { revert(0, 0) }
+            
+            result := mload(ptr)
+        }
     }
 }

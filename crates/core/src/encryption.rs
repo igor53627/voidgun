@@ -1,8 +1,7 @@
 use ark_bn254::Fr as Field;
-use ark_ff::PrimeField;
 
 use crate::notes::{EncryptedNote, Note};
-use crate::keys::ReceivingKey;
+use crate::utils::{u256_to_field, address_to_field};
 
 /// Encrypt a note for a recipient
 /// 
@@ -77,16 +76,6 @@ pub fn try_decrypt_note(
 
 fn encryption_mask(shared_secret: Field, index: u64) -> Field {
     poseidon2_hash(&[shared_secret, Field::from(index)])
-}
-
-fn u256_to_field(value: alloy_primitives::U256) -> Field {
-    Field::from_be_bytes_mod_order(&value.to_be_bytes::<32>())
-}
-
-fn address_to_field(addr: alloy_primitives::Address) -> Field {
-    let mut bytes = [0u8; 32];
-    bytes[12..32].copy_from_slice(addr.as_slice());
-    Field::from_be_bytes_mod_order(&bytes)
 }
 
 // TODO: Implement actual Poseidon2 hash

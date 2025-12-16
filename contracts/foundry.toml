@@ -1,8 +1,13 @@
 [profile.default]
 src = "src"
+test = "test"
 out = "out"
 libs = ["lib"]
-solc = "0.8.20"
+solc = "0.8.31"
+evm_version = "osaka"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
 
 [fmt]
 line_length = 100

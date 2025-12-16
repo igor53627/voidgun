@@ -2,6 +2,7 @@ use ark_bn254::Fr as Field;
 use ark_ff::Zero;
 
 use crate::TREE_DEPTH;
+use crate::poseidon2::hash_merkle_node;
 
 /// Incremental Merkle tree for note commitments
 #[derive(Clone, Debug)]
@@ -58,7 +59,7 @@ impl MerkleTree {
                 (self.filled_subtrees[i], current_level_hash)
             };
             
-            current_level_hash = poseidon2_hash(&[left, right]);
+            current_level_hash = hash_merkle_node(left, right);
             current_index /= 2;
         }
         
@@ -85,7 +86,7 @@ impl MerkleTree {
         let mut zeros = vec![Field::zero()];
         
         for i in 0..TREE_DEPTH {
-            let next = poseidon2_hash(&[zeros[i], zeros[i]]);
+            let next = hash_merkle_node(zeros[i], zeros[i]);
             zeros.push(next);
         }
         
@@ -118,21 +119,12 @@ impl MerkleProof {
                 (*sibling, current)
             };
             
-            current = poseidon2_hash(&[left, right]);
+            current = hash_merkle_node(left, right);
             index /= 2;
         }
         
         current
     }
-}
-
-// TODO: Implement actual Poseidon2 hash matching Noir circuit
-fn poseidon2_hash(inputs: &[Field]) -> Field {
-    let mut acc = Field::from(0u64);
-    for (i, input) in inputs.iter().enumerate() {
-        acc += *input * Field::from(i as u64 + 1);
-    }
-    acc
 }
 
 #[cfg(test)]
