@@ -99,6 +99,11 @@ async function main() {
         
         TENDERLY_ADMIN_RPC = getAdminRpcUrl(vnet);
         PUBLIC_RPC = getPublicRpcUrl(vnet);
+        
+        if (!TENDERLY_ADMIN_RPC || !PUBLIC_RPC) {
+            console.error("[X] VNet created but RPC URLs not found in response");
+            process.exit(1);
+        }
     } else if (RESET_VNET_FLAG) {
         console.log("Resetting Tenderly Virtual TestNet...\n");
         try {
@@ -113,6 +118,11 @@ async function main() {
             
             TENDERLY_ADMIN_RPC = getAdminRpcUrl(vnet);
             PUBLIC_RPC = getPublicRpcUrl(vnet);
+            
+            if (!TENDERLY_ADMIN_RPC || !PUBLIC_RPC) {
+                console.error("[X] VNet reset but RPC URLs not found in response");
+                process.exit(1);
+            }
         } catch (e) {
             console.error("Failed to reset VNet:", (e as Error).message);
             console.log("Continuing with existing VNet...\n");
