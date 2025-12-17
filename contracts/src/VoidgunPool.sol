@@ -150,11 +150,7 @@ contract VoidgunPool is ReentrancyGuard {
         
         currentRoot = zeros[TREE_DEPTH];
         isKnownRoot[currentRoot] = true;
-        
-        // Initialize root history with empty root
-        for (uint256 i = 0; i < ROOT_HISTORY_SIZE; i++) {
-            rootHistory[i] = currentRoot;
-        }
+        // rootHistory remains zero-initialized; eviction logic handles empty slots via != 0 check
     }
     
     // ============================================

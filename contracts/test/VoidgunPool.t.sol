@@ -18,15 +18,20 @@ contract MockVerifier is IVerifier {
 }
 
 contract MockERC20 {
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     
     function mint(address to, uint256 amount) external {
         balanceOf[to] += amount;
+        emit Transfer(address(0), to, amount);
     }
     
     function approve(address spender, uint256 amount) external returns (bool) {
         allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
         return true;
     }
     
@@ -36,6 +41,7 @@ contract MockERC20 {
         allowance[from][msg.sender] -= amount;
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
         return true;
     }
     
@@ -43,6 +49,7 @@ contract MockERC20 {
         require(balanceOf[msg.sender] >= amount, "Insufficient balance");
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
         return true;
     }
 }
@@ -196,14 +203,19 @@ contract VoidgunPoolTest is Test {
     // ============================================
     
     function test_RootHistoryPruning() public {
-        uint256 firstRoot = pool.currentRoot();
+        // First deposit creates root #1
+        vm.prank(alice);
+        pool.deposit{value: 0.01 ether}(1, 0.01 ether, address(0), hex"");
+        uint256 firstDepositRoot = pool.currentRoot();
+        assertTrue(pool.isKnownRoot(firstDepositRoot), "First deposit root should be known");
         
-        for (uint256 i = 0; i < 101; i++) {
+        // Do 100 more deposits (101 total roots in buffer, first should be evicted)
+        for (uint256 i = 2; i <= 101; i++) {
             vm.prank(alice);
-            pool.deposit{value: 0.01 ether}(i + 1, 0.01 ether, address(0), hex"");
+            pool.deposit{value: 0.01 ether}(i, 0.01 ether, address(0), hex"");
         }
         
-        assertFalse(pool.isKnownRoot(firstRoot), "First root should be pruned after 100+ inserts");
+        assertFalse(pool.isKnownRoot(firstDepositRoot), "First deposit root should be pruned after 100 more inserts");
     }
     
     // ============================================
