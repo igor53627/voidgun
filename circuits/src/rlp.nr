@@ -37,6 +37,7 @@ impl RlpBuffer {
     }
     
     fn write_byte(self, b: u8) -> Self {
+        assert(self.pos < MAX_RLP_SIZE, "Buffer overflow in write_byte");
         let mut result = self;
         result.data[result.pos] = b;
         result.pos += 1;
@@ -44,6 +45,7 @@ impl RlpBuffer {
     }
     
     fn write_bytes<let N: u32>(self, bytes: [u8; N]) -> Self {
+        assert(self.pos + N <= MAX_RLP_SIZE, "Buffer overflow in write_bytes");
         let mut result = self;
         for i in 0..N {
             result.data[result.pos + i] = bytes[i];
