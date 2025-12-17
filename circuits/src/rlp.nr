@@ -1,18 +1,38 @@
 use keccak256::keccak256;
 
-/// Maximum RLP buffer size for EIP-1559 transactions
-/// Worst case: type(1) + list_prefix(3) + 9 fields * (prefix(9) + max_bytes(32)) = ~380 bytes
-/// We use 512 for safety margin
-global MAX_RLP_SIZE: u32 = 512;
+/// EIP-1559 RLP Encoding for Simple Transfers
+/// 
+/// SCOPE LIMITATIONS:
+/// - Only supports simple value transfers (no contract creation)
+/// - `to` field must be a 20-byte address (not empty)
+/// - `data` field is always empty (0x80)
+/// - `access_list` is always empty (0xc0)
+/// 
+/// For contract calls or complex transactions, this module would need extension.
+
+/// Maximum RLP buffer size for EIP-1559 simple transfer transactions
+/// Actual max payload: type(1) + list_header(3) + 9 encoded fields
+///   - chain_id: max 9 bytes (u64)
+///   - nonce: max 9 bytes (u64)
+///   - max_priority_fee: max 33 bytes (Field)
+///   - max_fee: max 33 bytes (Field)
+///   - gas_limit: max 9 bytes (u64)
+///   - to: 21 bytes (fixed address)
+///   - value: max 33 bytes (Field)
+///   - data: 1 byte (empty)
+///   - access_list: 1 byte (empty)
+/// Total max: 1 + 3 + 9+9+33+33+9+21+33+1+1 = 153 bytes
+/// We use 192 for safety margin
+global MAX_RLP_SIZE: u32 = 192;
 
 /// RLP encoding buffer with write position
-struct RlpBuffer {
-    data: [u8; MAX_RLP_SIZE],
-    pos: u32,
+pub struct RlpBuffer {
+    pub data: [u8; MAX_RLP_SIZE],
+    pub pos: u32,
 }
 
 impl RlpBuffer {
-    fn new() -> Self {
+    pub fn new() -> Self {
         RlpBuffer { data: [0; MAX_RLP_SIZE], pos: 0 }
     }
     
@@ -34,7 +54,7 @@ impl RlpBuffer {
 }
 
 /// Encode a u64 as big-endian bytes, returning the number of significant bytes
-fn u64_to_be_bytes(value: u64) -> ([u8; 8], u32) {
+pub fn u64_to_be_bytes(value: u64) -> ([u8; 8], u32) {
     let mut bytes: [u8; 8] = [0; 8];
     let mut v = value;
     for i in 0..8 {
@@ -56,7 +76,7 @@ fn u64_to_be_bytes(value: u64) -> ([u8; 8], u32) {
 }
 
 /// RLP encode a single byte or short string (0-55 bytes)
-fn rlp_encode_bytes<let N: u32>(buf: RlpBuffer, bytes: [u8; N], len: u32) -> RlpBuffer {
+pub fn rlp_encode_bytes<let N: u32>(buf: RlpBuffer, bytes: [u8; N], len: u32) -> RlpBuffer {
     if len == 0 {
         buf.write_byte(0x80)
     } else if len == 1 {
@@ -91,7 +111,7 @@ fn rlp_encode_bytes<let N: u32>(buf: RlpBuffer, bytes: [u8; N], len: u32) -> Rlp
 }
 
 /// RLP encode a u64 integer
-fn rlp_encode_u64(buf: RlpBuffer, value: u64) -> RlpBuffer {
+pub fn rlp_encode_u64(buf: RlpBuffer, value: u64) -> RlpBuffer {
     if value == 0 {
         buf.write_byte(0x80)
     } else if value < 128 {
@@ -111,7 +131,7 @@ fn rlp_encode_u64(buf: RlpBuffer, value: u64) -> RlpBuffer {
 
 /// RLP encode a Field as big-endian bytes (trimmed leading zeros)
 /// BN254 scalar field is ~254 bits, so we use to_be_bytes which returns [u8; 32]
-fn rlp_encode_field(buf: RlpBuffer, value: Field) -> RlpBuffer {
+pub fn rlp_encode_field(buf: RlpBuffer, value: Field) -> RlpBuffer {
     let bytes: [u8; 32] = value.to_be_bytes();
     
     let mut leading_zeros: u32 = 0;
@@ -170,6 +190,8 @@ fn encode_eip1559_fields(tx: Eip1559TxRlp) -> ([u8; MAX_RLP_SIZE], u32) {
     buf = buf.write_byte(0x80); // empty data
     buf = buf.write_byte(0xc0); // empty access_list
     
+    assert(buf.pos <= MAX_RLP_SIZE, "RLP fields buffer overflow");
+    
     (buf.data, buf.pos)
 }
 
@@ -200,6 +222,8 @@ pub fn eip1559_signing_hash(tx: Eip1559TxRlp) -> [u8; 32] {
     }
     
     let total_len = final_buf.pos;
+    assert(total_len <= MAX_RLP_SIZE, "RLP final buffer overflow");
+    
     keccak256(final_buf.data, total_len)
 }
 

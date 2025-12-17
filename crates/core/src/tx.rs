@@ -1,6 +1,15 @@
 use alloy_primitives::{Address, Bytes, U256, keccak256};
 use alloy_rlp::Encodable;
 
+/// BN254 scalar field modulus (Fr)
+/// p = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+const BN254_MODULUS: U256 = U256::from_limbs([
+    0x43e1f593f0000001,
+    0x2833e84879b97091,
+    0xb85045b68181585d,
+    0x30644e72e131a029,
+]);
+
 /// Parsed EIP-1559 transaction
 #[derive(Clone, Debug)]
 pub struct Eip1559Tx {
@@ -15,6 +24,24 @@ pub struct Eip1559Tx {
 }
 
 impl Eip1559Tx {
+    /// Validate that all U256 fields are within BN254 scalar field range.
+    /// This ensures the RLP encoding in Noir (using Field) matches the Rust encoding.
+    pub fn validate_for_circuit(&self) -> Result<(), TxError> {
+        if self.max_priority_fee_per_gas >= BN254_MODULUS {
+            return Err(TxError::FieldOverflow("max_priority_fee_per_gas"));
+        }
+        if self.max_fee_per_gas >= BN254_MODULUS {
+            return Err(TxError::FieldOverflow("max_fee_per_gas"));
+        }
+        if self.value >= BN254_MODULUS {
+            return Err(TxError::FieldOverflow("value"));
+        }
+        if !self.data.is_empty() {
+            return Err(TxError::NonEmptyData);
+        }
+        Ok(())
+    }
+    
     pub fn signing_hash(&self) -> [u8; 32] {
         use alloy_rlp::EMPTY_LIST_CODE;
         
@@ -93,6 +120,12 @@ pub enum TxError {
     
     #[error("RLP decoding not yet implemented")]
     DecodingNotImplemented,
+    
+    #[error("Field {0} exceeds BN254 scalar field modulus")]
+    FieldOverflow(&'static str),
+    
+    #[error("Non-empty data not supported (only simple transfers)")]
+    NonEmptyData,
 }
 
 #[cfg(test)]
