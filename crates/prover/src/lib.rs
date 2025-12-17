@@ -2,10 +2,13 @@ use ark_bn254::Fr as Field;
 use ark_ff::{BigInteger, PrimeField};
 use thiserror::Error;
 
+/// Path to the compiled transfer circuit ACIR artifact (set by build.rs)
+pub const TRANSFER_CIRCUIT_PATH: &str = env!("TRANSFER_CIRCUIT_PATH");
+
 /// Witness data for the transfer circuit
 #[derive(Clone, Debug)]
 pub struct TransferWitness {
-    // Public inputs
+    // Public inputs (9 elements matching VoidgunPool.sol)
     pub root: Field,
     pub cm_out: Field,
     pub cm_change: Field,
@@ -14,6 +17,7 @@ pub struct TransferWitness {
     pub gas_tip: Field,
     pub gas_fee_cap: Field,
     pub token_type: Field,
+    pub pool_id: Field,
     
     // Transaction data (private)
     pub tx_hash: [u8; 32],
@@ -101,7 +105,7 @@ pub enum ProverError {
 pub fn prove_transfer(witness: TransferWitness) -> Result<TransferProof, ProverError> {
     tracing::info!("Generating transfer proof...");
     
-    // Extract public inputs as bytes
+    // Extract public inputs as bytes (9 elements matching VoidgunPool.sol)
     let public_inputs = vec![
         field_to_bytes(witness.root),
         field_to_bytes(witness.cm_out),
@@ -111,6 +115,7 @@ pub fn prove_transfer(witness: TransferWitness) -> Result<TransferProof, ProverE
         field_to_bytes(witness.gas_tip),
         field_to_bytes(witness.gas_fee_cap),
         field_to_bytes(witness.token_type),
+        field_to_bytes(witness.pool_id),
     ];
     
     // TODO: Implement actual proving with Barretenberg
@@ -163,6 +168,7 @@ mod tests {
             gas_tip: Field::zero(),
             gas_fee_cap: Field::zero(),
             token_type: Field::zero(),
+            pool_id: Field::zero(),
             tx_hash: [0u8; 32],
             tx_chain_id: 1,
             tx_nonce: 0,
@@ -192,6 +198,12 @@ mod tests {
         
         let proof = prove_transfer(witness).unwrap();
         assert!(!proof.proof.is_empty());
-        assert_eq!(proof.public_inputs.len(), 8);
+        assert_eq!(proof.public_inputs.len(), 9);
+    }
+    
+    #[test]
+    fn test_circuit_path() {
+        assert!(!TRANSFER_CIRCUIT_PATH.is_empty());
+        assert!(std::path::Path::new(TRANSFER_CIRCUIT_PATH).exists());
     }
 }
