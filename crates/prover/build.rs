@@ -45,14 +45,13 @@ fn main() {
     if artifact_src.exists() {
         if let Err(e) = fs::copy(&artifact_src, &artifact_dst) {
             println!("cargo:warning=Failed to copy ACIR artifact: {}", e);
-        } else {
-            println!("cargo:warning=Copied ACIR artifact to {}", artifact_dst.display());
+            return;
         }
+        println!("cargo:warning=Copied ACIR artifact to {}", artifact_dst.display());
+        println!("cargo:rustc-env=TRANSFER_CIRCUIT_PATH={}", artifact_dst.display());
     } else {
         println!("cargo:warning=ACIR artifact not found at {}", artifact_src.display());
     }
-    
-    println!("cargo:rustc-env=TRANSFER_CIRCUIT_PATH={}", artifact_dst.display());
 }
 
 fn which_nargo() -> Option<std::path::PathBuf> {

@@ -75,6 +75,7 @@ pub const TRANSFER_CIRCUIT_PATH: &str = env!("TRANSFER_CIRCUIT_PATH");
 static CIRCUIT_CONTEXT: Lazy<Mutex<Option<CircuitContext>>> = Lazy::new(|| Mutex::new(None));
 
 /// Circuit context with precomputed verification key
+#[derive(Clone)]
 struct CircuitContext {
     circuit_path: PathBuf,
     vk: Vec<u8>,
@@ -239,14 +240,6 @@ fn get_circuit_context() -> Result<CircuitContext, ProverError> {
     Ok(guard.as_ref().unwrap().clone())
 }
 
-impl Clone for CircuitContext {
-    fn clone(&self) -> Self {
-        CircuitContext {
-            circuit_path: self.circuit_path.clone(),
-            vk: self.vk.clone(),
-        }
-    }
-}
 
 /// Convert witness to Prover.toml format for nargo
 fn witness_to_toml(witness: &TransferWitness) -> String {
@@ -365,14 +358,17 @@ type = "bin"
     std::fs::write(circuit_dir.join("Nargo.toml"), nargo_toml)
         .map_err(|e| ProverError::IoError(e.to_string()))?;
     
-    // Create minimal main.nr (just for nargo to be happy)
-    std::fs::write(circuit_dir.join("src").join("main.nr"), "fn main() {}")
+    // Copy actual circuit source - nargo verifies source hash matches compiled artifact
+    let circuit_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap().parent().unwrap()
+        .join("circuits-bin").join("transfer").join("src").join("main.nr");
+    std::fs::copy(&circuit_source, circuit_dir.join("src").join("main.nr"))
         .map_err(|e| ProverError::IoError(e.to_string()))?;
     
     // Execute to generate witness
     tracing::info!("Executing circuit to generate witness...");
     let output = Command::new("nargo")
-        .args(["execute", "--package", "transfer"])
+        .args(["execute"])
         .current_dir(&circuit_dir)
         .output()
         .map_err(|e| ProverError::WitnessGenerationFailed(e.to_string()))?;
@@ -453,6 +449,7 @@ pub fn verify_transfer(proof: &TransferProof) -> Result<bool, ProverError> {
     let output = Command::new("bb")
         .args([
             "verify",
+            "--oracle_hash", "keccak",
             "-p", proof_path.to_str().unwrap(),
             "-k", vk_path.to_str().unwrap(),
         ])
@@ -489,6 +486,7 @@ pub fn generate_solidity_verifier() -> Result<String, ProverError> {
     let output = Command::new("bb")
         .args([
             "write_solidity_verifier",
+            "--oracle_hash", "keccak",
             "-k", vk_path.to_str().unwrap(),
             "-o", sol_path.to_str().unwrap(),
             "-t", "evm",
