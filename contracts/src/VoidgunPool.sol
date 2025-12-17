@@ -193,28 +193,28 @@ contract VoidgunPool is ReentrancyGuard {
     }
     
     /// @notice Execute a shielded transfer
-    /// @param publicInputs Array of public inputs for the circuit
+    /// @param publicInputs Array of public inputs for the circuit (as bytes32 for verifier compatibility)
     ///        [root, cmOut, cmChange, nfNote, nfTx, gasTip, gasFeeCap, tokenType, poolId]
     /// @param proof The zk proof bytes
     /// @param ciphertextOut Encrypted output note
     /// @param ciphertextChange Encrypted change note
     function shieldedTransfer(
-        uint256[] calldata publicInputs,
+        bytes32[] calldata publicInputs,
         bytes calldata proof,
         bytes calldata ciphertextOut,
         bytes calldata ciphertextChange
     ) external nonReentrant {
         if (publicInputs.length != TRANSFER_PUBLIC_INPUTS_LENGTH) revert InvalidPublicInputsLength();
         
-        uint256 root = publicInputs[0];
-        uint256 cmOut = publicInputs[1];
-        uint256 cmChange = publicInputs[2];
-        uint256 nfNote = publicInputs[3];
-        uint256 nfTx = publicInputs[4];
-        // gasTip = publicInputs[5];
-        // gasFeeCap = publicInputs[6];
-        // tokenType = publicInputs[7];
-        uint256 proofPoolId = publicInputs[8];
+        uint256 root = uint256(publicInputs[0]);
+        uint256 cmOut = uint256(publicInputs[1]);
+        uint256 cmChange = uint256(publicInputs[2]);
+        uint256 nfNote = uint256(publicInputs[3]);
+        uint256 nfTx = uint256(publicInputs[4]);
+        // gasTip = uint256(publicInputs[5]);
+        // gasFeeCap = uint256(publicInputs[6]);
+        // tokenType = uint256(publicInputs[7]);
+        uint256 proofPoolId = uint256(publicInputs[8]);
         
         // Verify pool binding
         if (proofPoolId != poolId) revert InvalidPoolId();
@@ -251,14 +251,14 @@ contract VoidgunPool is ReentrancyGuard {
     }
     
     /// @notice Withdraw tokens from the shielded pool
-    /// @param publicInputs Array of public inputs for withdrawal circuit
+    /// @param publicInputs Array of public inputs for withdrawal circuit (as bytes32)
     ///        [root, nfNote, nfTx, value, tokenType, recipient, poolId]
     /// @param proof The zk proof bytes
     /// @param to Recipient address (must match proof)
     /// @param token Token address
     /// @param value Amount to withdraw
     function withdraw(
-        uint256[] calldata publicInputs,
+        bytes32[] calldata publicInputs,
         bytes calldata proof,
         address to,
         address token,
@@ -267,13 +267,13 @@ contract VoidgunPool is ReentrancyGuard {
         if (publicInputs.length != WITHDRAW_PUBLIC_INPUTS_LENGTH) revert InvalidPublicInputsLength();
         if (to == address(0)) revert InvalidRecipient();
         
-        uint256 root = publicInputs[0];
-        uint256 nfNote = publicInputs[1];
-        uint256 nfTx = publicInputs[2];
-        uint256 proofValue = publicInputs[3];
-        uint256 proofTokenType = publicInputs[4];
-        uint256 proofRecipient = publicInputs[5];
-        uint256 proofPoolId = publicInputs[6];
+        uint256 root = uint256(publicInputs[0]);
+        uint256 nfNote = uint256(publicInputs[1]);
+        uint256 nfTx = uint256(publicInputs[2]);
+        uint256 proofValue = uint256(publicInputs[3]);
+        uint256 proofTokenType = uint256(publicInputs[4]);
+        uint256 proofRecipient = uint256(publicInputs[5]);
+        uint256 proofPoolId = uint256(publicInputs[6]);
         
         // Verify pool binding
         if (proofPoolId != poolId) revert InvalidPoolId();

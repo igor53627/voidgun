@@ -12,7 +12,7 @@ contract MockVerifier is IVerifier {
         shouldPass = _pass;
     }
     
-    function verify(bytes calldata, uint256[] calldata) external view override returns (bool) {
+    function verify(bytes calldata, bytes32[] calldata) external view returns (bool) {
         return shouldPass;
     }
 }
@@ -78,6 +78,15 @@ contract VoidgunPoolTest is Test {
         
         vm.deal(alice, 100 ether);
         token.mint(alice, 1000 ether);
+    }
+    
+    // Helper to convert uint256 array to bytes32 array
+    function toBytes32Array(uint256[] memory arr) internal pure returns (bytes32[] memory) {
+        bytes32[] memory result = new bytes32[](arr.length);
+        for (uint256 i = 0; i < arr.length; i++) {
+            result[i] = bytes32(arr[i]);
+        }
+        return result;
     }
     
     // ============================================
@@ -227,18 +236,18 @@ contract VoidgunPoolTest is Test {
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
         uint256 root = pool.currentRoot();
-        uint256[] memory publicInputs = new uint256[](9);
-        publicInputs[0] = root;
-        publicInputs[1] = 222; // cmOut
-        publicInputs[2] = 333; // cmChange
-        publicInputs[3] = 444; // nfNote
-        publicInputs[4] = 555; // nfTx
-        publicInputs[5] = 0;   // gasTip
-        publicInputs[6] = 0;   // gasFeeCap
-        publicInputs[7] = 0;   // tokenType (ETH)
-        publicInputs[8] = pool.poolId(); // poolId
+        uint256[] memory publicInputsU = new uint256[](9);
+        publicInputsU[0] = root;
+        publicInputsU[1] = 222; // cmOut
+        publicInputsU[2] = 333; // cmChange
+        publicInputsU[3] = 444; // nfNote
+        publicInputsU[4] = 555; // nfTx
+        publicInputsU[5] = 0;   // gasTip
+        publicInputsU[6] = 0;   // gasFeeCap
+        publicInputsU[7] = 0;   // tokenType (ETH)
+        publicInputsU[8] = pool.poolId(); // poolId
         
-        pool.shieldedTransfer(publicInputs, hex"00", hex"00", hex"00");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"00", hex"00");
         
         assertTrue(pool.nullifiedNotes(444));
         assertTrue(pool.nullifiedTxs(555));
@@ -249,40 +258,40 @@ contract VoidgunPoolTest is Test {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](9);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[8] = 999; // wrong poolId
+        uint256[] memory publicInputsU = new uint256[](9);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[8] = 999; // wrong poolId
         
         vm.expectRevert(VoidgunPool.InvalidPoolId.selector);
-        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"", hex"");
     }
     
     function test_RevertUnknownRoot() public {
-        uint256[] memory publicInputs = new uint256[](9);
-        publicInputs[0] = 12345; // unknown root
-        publicInputs[8] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](9);
+        publicInputsU[0] = 12345; // unknown root
+        publicInputsU[8] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.UnknownRoot.selector);
-        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"", hex"");
     }
     
     function test_RevertNoteAlreadySpent() public {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](9);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[3] = 444; // nfNote
-        publicInputs[4] = 555; // nfTx
-        publicInputs[8] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](9);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[3] = 444; // nfNote
+        publicInputsU[4] = 555; // nfTx
+        publicInputsU[8] = pool.poolId();
         
-        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"", hex"");
         
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[4] = 666; // different nfTx
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[4] = 666; // different nfTx
         
         vm.expectRevert(VoidgunPool.NoteAlreadySpent.selector);
-        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"", hex"");
     }
     
     function test_RevertInvalidProof() public {
@@ -291,32 +300,32 @@ contract VoidgunPoolTest is Test {
         
         verifier.setResult(false);
         
-        uint256[] memory publicInputs = new uint256[](9);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[8] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](9);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[8] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.InvalidProof.selector);
-        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"", hex"");
     }
     
     function test_RevertTransactionAlreadyUsed() public {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](9);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[3] = 444; // nfNote
-        publicInputs[4] = 555; // nfTx
-        publicInputs[8] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](9);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[3] = 444; // nfNote
+        publicInputsU[4] = 555; // nfTx
+        publicInputsU[8] = pool.poolId();
         
-        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"", hex"");
         
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[3] = 666; // different nfNote
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[3] = 666; // different nfNote
         // same nfTx = 555
         
         vm.expectRevert(VoidgunPool.TransactionAlreadyUsed.selector);
-        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        pool.shieldedTransfer(toBytes32Array(publicInputsU), hex"00", hex"", hex"");
     }
     
     // ============================================
@@ -329,16 +338,16 @@ contract VoidgunPoolTest is Test {
         
         uint256 bobBalanceBefore = bob.balance;
         
-        uint256[] memory publicInputs = new uint256[](7);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[1] = 444; // nfNote
-        publicInputs[2] = 555; // nfTx
-        publicInputs[3] = 1 ether; // value
-        publicInputs[4] = 0;   // tokenType (ETH)
-        publicInputs[5] = uint256(uint160(bob)); // recipient
-        publicInputs[6] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](7);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[1] = 444; // nfNote
+        publicInputsU[2] = 555; // nfTx
+        publicInputsU[3] = 1 ether; // value
+        publicInputsU[4] = 0;   // tokenType (ETH)
+        publicInputsU[5] = uint256(uint160(bob)); // recipient
+        publicInputsU[6] = pool.poolId();
         
-        pool.withdraw(publicInputs, hex"00", bob, address(0), 1 ether);
+        pool.withdraw(toBytes32Array(publicInputsU), hex"00", bob, address(0), 1 ether);
         
         assertEq(bob.balance, bobBalanceBefore + 1 ether);
         assertTrue(pool.nullifiedNotes(444));
@@ -350,16 +359,16 @@ contract VoidgunPoolTest is Test {
         pool.deposit(111, 100 ether, address(token), hex"");
         vm.stopPrank();
         
-        uint256[] memory publicInputs = new uint256[](7);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[1] = 444;
-        publicInputs[2] = 555;
-        publicInputs[3] = 50 ether;
-        publicInputs[4] = uint256(uint160(address(token)));
-        publicInputs[5] = uint256(uint160(bob)); // recipient
-        publicInputs[6] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](7);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[1] = 444;
+        publicInputsU[2] = 555;
+        publicInputsU[3] = 50 ether;
+        publicInputsU[4] = uint256(uint160(address(token)));
+        publicInputsU[5] = uint256(uint160(bob)); // recipient
+        publicInputsU[6] = pool.poolId();
         
-        pool.withdraw(publicInputs, hex"00", bob, address(token), 50 ether);
+        pool.withdraw(toBytes32Array(publicInputsU), hex"00", bob, address(token), 50 ether);
         
         assertEq(token.balanceOf(bob), 50 ether);
     }
@@ -368,57 +377,57 @@ contract VoidgunPoolTest is Test {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](7);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[3] = 1 ether; // proof says 1 ether
-        publicInputs[5] = uint256(uint160(bob));
-        publicInputs[6] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](7);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[3] = 1 ether; // proof says 1 ether
+        publicInputsU[5] = uint256(uint160(bob));
+        publicInputsU[6] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.ValueMismatch.selector);
-        pool.withdraw(publicInputs, hex"00", bob, address(0), 2 ether); // but trying to withdraw 2
+        pool.withdraw(toBytes32Array(publicInputsU), hex"00", bob, address(0), 2 ether); // but trying to withdraw 2
     }
     
     function test_RevertTokenMismatch() public {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](7);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[3] = 1 ether;
-        publicInputs[4] = 0; // proof says ETH
-        publicInputs[5] = uint256(uint160(bob));
-        publicInputs[6] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](7);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[3] = 1 ether;
+        publicInputsU[4] = 0; // proof says ETH
+        publicInputsU[5] = uint256(uint160(bob));
+        publicInputsU[6] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.TokenMismatch.selector);
-        pool.withdraw(publicInputs, hex"00", bob, address(token), 1 ether); // but passing token
+        pool.withdraw(toBytes32Array(publicInputsU), hex"00", bob, address(token), 1 ether); // but passing token
     }
     
     function test_RevertRecipientMismatch() public {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](7);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[1] = 444;
-        publicInputs[2] = 555;
-        publicInputs[3] = 1 ether;
-        publicInputs[4] = 0;
-        publicInputs[5] = uint256(uint160(bob)); // proof says bob
-        publicInputs[6] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](7);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[1] = 444;
+        publicInputsU[2] = 555;
+        publicInputsU[3] = 1 ether;
+        publicInputsU[4] = 0;
+        publicInputsU[5] = uint256(uint160(bob)); // proof says bob
+        publicInputsU[6] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.RecipientMismatch.selector);
-        pool.withdraw(publicInputs, hex"00", alice, address(0), 1 ether); // but trying to send to alice
+        pool.withdraw(toBytes32Array(publicInputsU), hex"00", alice, address(0), 1 ether); // but trying to send to alice
     }
     
     function test_RevertInvalidRecipient() public {
         vm.prank(alice);
         pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
         
-        uint256[] memory publicInputs = new uint256[](7);
-        publicInputs[0] = pool.currentRoot();
-        publicInputs[6] = pool.poolId();
+        uint256[] memory publicInputsU = new uint256[](7);
+        publicInputsU[0] = pool.currentRoot();
+        publicInputsU[6] = pool.poolId();
         
         vm.expectRevert(VoidgunPool.InvalidRecipient.selector);
-        pool.withdraw(publicInputs, hex"00", address(0), address(0), 1 ether);
+        pool.withdraw(toBytes32Array(publicInputsU), hex"00", address(0), address(0), 1 ether);
     }
 }
