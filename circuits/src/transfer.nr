@@ -1,6 +1,7 @@
 use dep::poseidon::poseidon2::Poseidon2;
 use keccak256::keccak256;
 use std::ecdsa_secp256k1::verify_signature;
+use crate::tx::Eip1559Tx;
 
 global TREE_DEPTH: u32 = 20;
 
@@ -64,8 +65,8 @@ fn compute_nullifier(cm: Field, nk: Field) -> Field {
 
 /// Compute transaction nullifier with domain separation and pool binding
 /// Uses sponge hash: H(domain, nk, chain_id, pool_id, from, nonce)
-fn compute_tx_nullifier(nk: Field, chain_id: Field, pool_id: Field, from: Field, nonce: Field) -> Field {
-    Poseidon2::hash([DOMAIN_NULLIFIER, nk, chain_id, pool_id, from, nonce], 6)
+fn compute_tx_nullifier(nk: Field, chain_id: u64, pool_id: Field, from: Field, nonce: u64) -> Field {
+    Poseidon2::hash([DOMAIN_NULLIFIER, nk, chain_id as Field, pool_id, from, nonce as Field], 6)
 }
 
 /// Derive receiving key hash from nullifying key
@@ -133,8 +134,9 @@ pub fn transfer(
     
     // Signed transaction (private)
     tx_hash: [u8; 32],
-    tx_chain_id: Field,
-    tx_nonce: Field,
+    tx_chain_id: u64,
+    tx_nonce: u64,
+    tx_gas_limit: u64,
     tx_to: [u8; 20],
     tx_value: Field,
     tx_max_priority_fee: Field,
@@ -172,6 +174,20 @@ pub fn transfer(
     recipient_pk_x: [u8; 32],
     recipient_pk_y: [u8; 32],
 ) {
+    // ============================================
+    // 0. Verify tx_hash matches RLP-encoded EIP-1559 tx
+    // ============================================
+    let tx = Eip1559Tx {
+        chain_id: tx_chain_id,
+        nonce: tx_nonce,
+        max_priority_fee_per_gas: tx_max_priority_fee,
+        max_fee_per_gas: tx_max_fee,
+        gas_limit: tx_gas_limit,
+        to: tx_to,
+        value: tx_value,
+    };
+    tx.verify_hash(tx_hash);
+    
     // ============================================
     // 1. Verify ECDSA signature with low-S check
     // ============================================

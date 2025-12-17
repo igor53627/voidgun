@@ -22,7 +22,7 @@ ark-serialize = "0.5"
 poseidon2 = { git = "https://github.com/HorizenLabs/poseidon2" }
 
 # Ethereum
-alloy-primitives = "0.8"
+alloy-primitives = { version = "0.8", features = ["rlp"] }
 alloy-sol-types = "0.8"
 alloy-rlp = "0.3"
 alloy-consensus = "0.6"
