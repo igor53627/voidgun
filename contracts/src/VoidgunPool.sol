@@ -381,7 +381,7 @@ contract VoidgunPool is ReentrancyGuard {
             
             let success := staticcall(gas(), hasher, ptr, 0x60, ptr, 0x20)
             if iszero(success) {
-                mstore(0x00, 0x8e4a23d6) // Poseidon2CallFailed()
+                mstore(0x00, 0x5845ba0b) // Poseidon2CallFailed()
                 revert(0x1c, 0x04)
             }
             

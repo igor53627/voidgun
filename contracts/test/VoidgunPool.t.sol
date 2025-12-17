@@ -287,6 +287,26 @@ contract VoidgunPoolTest is Test {
         pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
     }
     
+    function test_RevertTransactionAlreadyUsed() public {
+        vm.prank(alice);
+        pool.deposit{value: 1 ether}(111, 1 ether, address(0), hex"");
+        
+        uint256[] memory publicInputs = new uint256[](9);
+        publicInputs[0] = pool.currentRoot();
+        publicInputs[3] = 444; // nfNote
+        publicInputs[4] = 555; // nfTx
+        publicInputs[8] = pool.poolId();
+        
+        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+        
+        publicInputs[0] = pool.currentRoot();
+        publicInputs[3] = 666; // different nfNote
+        // same nfTx = 555
+        
+        vm.expectRevert(VoidgunPool.TransactionAlreadyUsed.selector);
+        pool.shieldedTransfer(publicInputs, hex"00", hex"", hex"");
+    }
+    
     // ============================================
     // Withdraw Tests
     // ============================================
