@@ -1,14 +1,40 @@
 use keccak256::keccak256;
+use crate::rlp::{Eip1559TxRlp, eip1559_signing_hash, verify_tx_hash};
 
 /// EIP-1559 transaction fields relevant for shielding
-struct Eip1559Tx {
-    chain_id: Field,
-    nonce: Field,
-    max_priority_fee_per_gas: Field,
-    max_fee_per_gas: Field,
-    gas_limit: Field,
-    to: [u8; 20],
-    value: Field,
+pub struct Eip1559Tx {
+    pub chain_id: u64,
+    pub nonce: u64,
+    pub max_priority_fee_per_gas: Field,
+    pub max_fee_per_gas: Field,
+    pub gas_limit: u64,
+    pub to: [u8; 20],
+    pub value: Field,
+}
+
+impl Eip1559Tx {
+    /// Convert to RLP-encodable format
+    pub fn to_rlp(self) -> Eip1559TxRlp {
+        Eip1559TxRlp {
+            chain_id: self.chain_id,
+            nonce: self.nonce,
+            max_priority_fee_per_gas: self.max_priority_fee_per_gas,
+            max_fee_per_gas: self.max_fee_per_gas,
+            gas_limit: self.gas_limit,
+            to: self.to,
+            value: self.value,
+        }
+    }
+    
+    /// Compute the EIP-1559 signing hash for this transaction
+    pub fn signing_hash(self) -> [u8; 32] {
+        eip1559_signing_hash(self.to_rlp())
+    }
+    
+    /// Verify that the provided hash matches this transaction's signing hash
+    pub fn verify_hash(self, expected_hash: [u8; 32]) {
+        verify_tx_hash(self.to_rlp(), expected_hash);
+    }
 }
 
 /// Derive Ethereum address from uncompressed secp256k1 public key

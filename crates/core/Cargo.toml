@@ -9,7 +9,7 @@ ark-ff.workspace = true
 ark-bn254.workspace = true
 ark-serialize.workspace = true
 alloy-primitives.workspace = true
-alloy-rlp.workspace = true
+alloy-rlp = { workspace = true, features = ["derive"] }
 serde.workspace = true
 thiserror.workspace = true
 rand = "0.8"
