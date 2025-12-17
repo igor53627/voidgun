@@ -4,6 +4,7 @@ test = "test"
 out = "out"
 libs = ["lib"]
 solc = "0.8.31"
+remappings = ["@openzeppelin/=lib/openzeppelin-contracts/"]
 evm_version = "osaka"
 optimizer = true
 optimizer_runs = 200
