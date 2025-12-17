@@ -8,9 +8,14 @@ circuits/proofs/
 *.proof
 *.vk
 
-# Environment
+# Environment (NEVER commit secrets)
 .env
 .env.local
+.env.*.local
+
+# Tenderly
+deployment.json
+**/deployment.json
 
 # IDE
 .idea/
@@ -29,4 +34,11 @@ Thumbs.db
 
 # Foundry build output
 contracts/out/
+contracts/out-verifier/
 contracts/cache/
+
+# Node
+node_modules/
+contracts/node_modules/
+package-lock.json
+contracts/package-lock.json
