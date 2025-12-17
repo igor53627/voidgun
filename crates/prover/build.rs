@@ -11,6 +11,7 @@ fn main() {
     
     println!("cargo:rerun-if-changed={}", circuits_bin_dir.display());
     println!("cargo:rerun-if-changed={}", circuits_bin_dir.join("src").join("main.nr").display());
+    println!("cargo:rerun-if-changed={}", circuits_bin_dir.join("Nargo.toml").display());
     
     if which_nargo().is_none() {
         println!("cargo:warning=nargo not found, skipping circuit compilation");
@@ -44,14 +45,13 @@ fn main() {
     if artifact_src.exists() {
         if let Err(e) = fs::copy(&artifact_src, &artifact_dst) {
             println!("cargo:warning=Failed to copy ACIR artifact: {}", e);
-        } else {
-            println!("cargo:warning=Copied ACIR artifact to {}", artifact_dst.display());
+            return;
         }
+        println!("cargo:warning=Copied ACIR artifact to {}", artifact_dst.display());
+        println!("cargo:rustc-env=TRANSFER_CIRCUIT_PATH={}", artifact_dst.display());
     } else {
         println!("cargo:warning=ACIR artifact not found at {}", artifact_src.display());
     }
-    
-    println!("cargo:rustc-env=TRANSFER_CIRCUIT_PATH={}", artifact_dst.display());
 }
 
 fn which_nargo() -> Option<std::path::PathBuf> {
