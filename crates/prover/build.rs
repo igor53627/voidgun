@@ -11,6 +11,7 @@ fn main() {
     
     println!("cargo:rerun-if-changed={}", circuits_bin_dir.display());
     println!("cargo:rerun-if-changed={}", circuits_bin_dir.join("src").join("main.nr").display());
+    println!("cargo:rerun-if-changed={}", circuits_bin_dir.join("Nargo.toml").display());
     
     if which_nargo().is_none() {
         println!("cargo:warning=nargo not found, skipping circuit compilation");

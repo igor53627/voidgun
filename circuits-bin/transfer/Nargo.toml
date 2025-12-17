@@ -2,7 +2,7 @@
 name = "transfer"
 type = "bin"
 authors = ["Voidgun Contributors"]
-compiler_version = ">=1.0.0"
+compiler_version = "=1.0.0-beta.16"
 
 [dependencies]
 poseidon = { git = "https://github.com/noir-lang/poseidon", tag = "v0.1.1" }
