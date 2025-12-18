@@ -32,6 +32,8 @@
 //!
 //! Requires: TENDERLY_RPC_URL, MAINNET_RPC_URL, or ETH_RPC_URL environment variable
 
+mod common;
+
 use alloy::primitives::{Address, Bytes, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::sol;
@@ -43,7 +45,7 @@ use railgun_lane::{
 };
 use std::sync::Arc;
 
-const ARTIFACTS_PATH: &str = "crates/railgun-lane/artifacts";
+use common::{setup_prover, setup_wallet, compute_message_hash, ARTIFACTS_PATH};
 
 // Railgun contract addresses
 // The Relay contract (0xfa7093...) has getVerificationKey, SmartWallet doesn't
@@ -199,28 +201,6 @@ sol! {
         function balanceOf(address account) external view returns (uint256);
         function transfer(address to, uint256 amount) external returns (bool);
     }
-}
-
-fn setup_prover() -> RailgunProver {
-    let store = Arc::new(ArtifactStore::new(ARTIFACTS_PATH, false));
-    RailgunProver::new(store)
-}
-
-fn setup_wallet() -> RailgunWallet {
-    let sig = [0x42u8; 65];
-    RailgunWallet::from_wallet_signature(&sig).expect("wallet creation")
-}
-
-fn compute_message_hash(
-    merkle_root: Field,
-    bound_params_hash: Field,
-    nullifiers: &[Field],
-    commitments: &[Field],
-) -> Field {
-    let mut inputs = vec![merkle_root, bound_params_hash];
-    inputs.extend(nullifiers.iter().copied());
-    inputs.extend(commitments.iter().copied());
-    railgun_lane::poseidon::poseidon_var(&inputs)
 }
 
 fn field_to_u256(f: &Field) -> U256 {

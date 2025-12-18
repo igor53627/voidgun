@@ -5,40 +5,21 @@
 //!
 //! Run with: cargo test -p railgun-lane --test proof_generation -- --nocapture
 
+mod common;
+
 use ark_bn254::Fr as Field;
 use ark_ff::UniformRand;
 use railgun_lane::{
-    ArtifactStore, CircuitVariant, NoteMerkleTree, RailgunNote, RailgunProver, RailgunWallet,
+    ArtifactStore, CircuitVariant, NoteMerkleTree, RailgunNote, RailgunProver,
     TransactWitness,
 };
 use std::sync::Arc;
 
-const ARTIFACTS_PATH: &str = "crates/railgun-lane/artifacts";
+use common::{setup_prover, setup_wallet, compute_message_hash, ARTIFACTS_PATH};
 
-fn setup_prover() -> RailgunProver {
-    let store = Arc::new(ArtifactStore::new(ARTIFACTS_PATH, false));
-    RailgunProver::new(store)
-}
-
-fn setup_wallet() -> RailgunWallet {
-    let sig = [0x42u8; 65];
-    RailgunWallet::from_wallet_signature(&sig).expect("wallet creation")
-}
-
-/// Compute the correct message hash for EdDSA signing
-///
-/// The circuit expects: Poseidon(merkleRoot, boundParamsHash, nullifiers..., commitments...)
-fn compute_message_hash(
-    merkle_root: Field,
-    bound_params_hash: Field,
-    nullifiers: &[Field],
-    commitments: &[Field],
-) -> Field {
-    let mut inputs = vec![merkle_root, bound_params_hash];
-    inputs.extend(nullifiers.iter().copied());
-    inputs.extend(commitments.iter().copied());
-    railgun_lane::poseidon::poseidon_var(&inputs)
-}
+// Re-export RailgunWallet for tests that use it directly
+#[allow(unused_imports)]
+use railgun_lane::RailgunWallet;
 
 #[tokio::test]
 async fn test_artifact_loading() {

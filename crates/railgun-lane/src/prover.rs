@@ -588,13 +588,13 @@ impl RailgunProver {
             }
         }
         if !satisfied {
-            eprintln!(
-                "[PROVER] R1CS constraint satisfaction FAILED! {} constraints failed. First 10: {:?}",
+            tracing::error!(
+                "R1CS constraint satisfaction FAILED! {} constraints failed. First 10: {:?}",
                 failed_constraints.len(),
                 failed_constraints
             );
         } else {
-            eprintln!("[PROVER] R1CS constraint satisfaction check PASSED ({} constraints)", matrices.num_constraints);
+            tracing::info!("[PROVER] R1CS constraint satisfaction check PASSED ({} constraints)", matrices.num_constraints);
         }
 
         // Extract public inputs (first num_instance_variables elements, excluding w_0=1)
@@ -605,14 +605,14 @@ impl RailgunProver {
         let use_snarkjs = std::env::var("USE_SNARKJS").is_ok();
 
         if use_snarkjs {
-            eprintln!("[PROVER] Using snarkjs for proof generation (USE_SNARKJS=1)");
+            tracing::info!("Using snarkjs for proof generation (USE_SNARKJS=1)");
 
             // Export witness to wtns format
             // Note: The circuit expects exactly expected_len - 1 elements (no padding)
             // because arkworks adds the "1" constant, but snarkjs WASM doesn't include it
             let original_len = full_assignment.len() - 1; // Remove the padding we added
             let original_assignment = &full_assignment[..original_len];
-            eprintln!("[PROVER] Exporting {} witness elements for snarkjs", original_len);
+            tracing::debug!("Exporting {} witness elements for snarkjs", original_len);
             let witness_wtns = self.export_witness_to_wtns(original_assignment)?;
             let witness_path = "/tmp/railgun_witness.wtns";
             std::fs::write(witness_path, &witness_wtns)
@@ -648,14 +648,12 @@ impl RailgunProver {
             // Parse the snarkjs proof.json and convert to arkworks format
             let proof = self.parse_snarkjs_proof(proof_path)?;
 
-            // Debug: Print snarkjs output vs what we'll send
-            eprintln!("[PROVER] snarkjs proof parsed successfully");
-            eprintln!("[PROVER] proof.a.x = {}", proof.a.x);
-            eprintln!("[PROVER] proof.a.y = {}", proof.a.y);
-            eprintln!("[PROVER] proof.b.x.c0 = {}", proof.b.x.c0);
-            eprintln!("[PROVER] proof.b.x.c1 = {}", proof.b.x.c1);
-            eprintln!("[PROVER] proof.b.y.c0 = {}", proof.b.y.c0);
-            eprintln!("[PROVER] proof.b.y.c1 = {}", proof.b.y.c1);
+            tracing::debug!(
+                "snarkjs proof parsed: a=({}, {}), b.x=({}, {}), b.y=({}, {})",
+                proof.a.x, proof.a.y,
+                proof.b.x.c0, proof.b.x.c1,
+                proof.b.y.c0, proof.b.y.c1
+            );
 
             return Ok((proof, public_inputs));
         }
@@ -832,7 +830,7 @@ impl RailgunProver {
                 .collect();
             let json = serde_json::to_string_pretty(&serde_json::Value::Object(inputs_json)).unwrap();
             std::fs::write("/tmp/railgun_inputs.json", &json).unwrap();
-            eprintln!("[PROVER] Dumped circuit inputs to /tmp/railgun_inputs.json");
+            tracing::debug!("Dumped circuit inputs to /tmp/railgun_inputs.json");
         }
 
         // Generate proof

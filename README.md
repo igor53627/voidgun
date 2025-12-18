@@ -134,7 +134,14 @@ cargo test -p railgun-lane
 cargo test -p railgun-lane --test proof_generation -- --ignored --nocapture
 
 # End-to-end test with Tenderly (shields tokens, generates proof, verifies on-chain)
-# Requires: TENDERLY_ACCESS_KEY, TENDERLY_ACCOUNT, TENDERLY_PROJECT
+# Requires Tenderly VNet (virtual testnet) setup:
+#   1. Create free account at https://dashboard.tenderly.co
+#   2. Create a project and note the account/project names
+#   3. Generate access key at https://dashboard.tenderly.co/account/authorization
+#   4. Export environment variables:
+#      export TENDERLY_ACCESS_KEY="your-key-here"
+#      export TENDERLY_ACCOUNT="your-account"
+#      export TENDERLY_PROJECT="your-project"
 cargo test -p railgun-lane --test onchain_verification test_e2e_auto -- --ignored --nocapture
 ```
 

@@ -33,9 +33,8 @@ mkdir -p "$OUTPUT_DIR"
 download_artifact() {
     local variant=$1
     local artifact_type=$2
-    local extension=$3
-    local path=$4
-    local compressed=$5
+    local path=$3
+    local compressed=$4
     
     local url="${IPFS_GATEWAY}/ipfs/${MASTER_IPFS_HASH}/${path}"
     local output_file="${OUTPUT_DIR}/${variant}.${artifact_type}"
@@ -79,13 +78,13 @@ for variant in "${VARIANTS[@]}"; do
     echo "=== Processing $variant ==="
     
     # VKEY (uncompressed JSON)
-    download_artifact "$variant" "vkey.json" "json" "circuits/${variant}/vkey.json" "false"
+    download_artifact "$variant" "vkey.json" "circuits/${variant}/vkey.json" "false"
     
     # ZKEY (brotli compressed) - Large file, ~50-200MB
-    download_artifact "$variant" "zkey" "zkey" "circuits/${variant}/zkey.br" "true"
+    download_artifact "$variant" "zkey" "circuits/${variant}/zkey.br" "true"
     
     # WASM (brotli compressed)
-    download_artifact "$variant" "wasm" "wasm" "prover/snarkjs/${variant}.wasm.br" "true"
+    download_artifact "$variant" "wasm" "prover/snarkjs/${variant}.wasm.br" "true"
 done
 
 echo ""

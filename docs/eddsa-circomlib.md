@@ -10,7 +10,7 @@ Railgun uses EdDSA signatures on the Baby Jubjub curve with Poseidon hashing. Th
 
 ### From Raw Key Bytes
 
-```
+```text
 raw_key (32 bytes)
     │
     ▼
@@ -48,7 +48,7 @@ This guarantees:
 
 ### Equation
 
-```
+```text
 S = r + hm * s (mod subOrder)
 ```
 
@@ -60,7 +60,7 @@ Where:
 
 ### R8 Computation
 
-```
+```text
 R8 = r * Base8
 ```
 
@@ -70,7 +70,7 @@ The R8 point coordinates are output in **circomlib format** for the circuit.
 
 ### Equation (used by circuit)
 
-```
+```text
 S * Base8 == R8 + 8 * hm * A
 ```
 
@@ -95,7 +95,7 @@ Circomlib and arkworks use different Baby Jubjub parameterizations:
 
 The curves are isomorphic via:
 
-```
+```text
 circomlib → arkworks:  (x_c, y_c) → (sqrt(A) * x_c, y_c)
 arkworks → circomlib:  (x_a, y_a) → (x_a / sqrt(A), y_a)
 ```
