@@ -1,0 +1,87 @@
+[package]
+name = "railgun-lane"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Railgun privacy pool lane for Voidgun multi-pool proxy"
+
+[dependencies]
+# Arkworks (BN254 + Baby Jubjub + Groth16)
+ark-ff.workspace = true
+ark-bn254.workspace = true
+ark-ed-on-bn254.workspace = true
+ark-serialize.workspace = true
+ark-std = "0.5"
+ark-ec = "0.5"
+ark-groth16 = "0.5"
+ark-snark = "0.5"
+ark-relations = "0.5"
+ark-circom = "0.5"
+
+# Poseidon (circomlibjs compatible)
+light-poseidon.workspace = true
+
+# BIP39/BIP32 key derivation
+bip39 = "2"
+hmac = "0.12"
+sha2 = "0.10"
+
+# Ed25519 for viewing keys
+ed25519-dalek = { version = "2", features = ["hazmat"] }
+
+# Hashing
+sha3 = "0.10"
+blake2 = "0.10"
+
+# AEAD encryption (ChaCha20-Poly1305 for note encryption)
+chacha20poly1305 = "0.10"
+
+# X25519 ECDH for shared secret derivation
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+
+# Ethereum compatibility
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+alloy-rpc-types = "1"
+k256.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Async
+async-trait.workspace = true
+tokio = { workspace = true, features = ["fs", "sync"] }
+
+# Bech32m encoding for 0zk addresses
+bech32 = "0.11"
+
+# Utilities
+once_cell.workspace = true
+rand = "0.8"
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+rayon = "1"
+
+# HTTP client for artifact downloads
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+
+# Brotli decompression for artifacts
+brotli = "7"
+
+# WASM runtime for witness calculation (required by ark-circom)
+wasmer = "4"
+
+# Internal
+voidgun-core.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+hex = "0.4"
+alloy = { version = "1", features = ["provider-http", "rpc-client", "sol-types"] }

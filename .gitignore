@@ -42,3 +42,6 @@ node_modules/
 contracts/node_modules/
 package-lock.json
 contracts/package-lock.json
+
+# Large event dumps (download with scripts/dump-railgun-events.sh)
+crates/railgun-lane/artifacts/events/*.json
