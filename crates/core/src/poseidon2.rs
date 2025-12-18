@@ -487,23 +487,29 @@ pub fn sponge_hash(inputs: &[Field]) -> Field {
     let num_inputs = inputs.len() as u64;
     let iv_bigint = <Field as ark_ff::PrimeField>::BigInt::from(num_inputs) << 64;
     let iv = Field::from(iv_bigint);
-    
+
     let mut state = [Field::ZERO, Field::ZERO, Field::ZERO, iv];
-    
+
     for chunk in inputs.chunks(3) {
         for (i, &input) in chunk.iter().enumerate() {
             state[i] += input;
         }
         permutation(&mut state);
     }
-    
+
     state[0]
 }
 
 /// Hash for note commitment with domain separation
 /// Matches Noir: Poseidon2::hash([DOMAIN_COMMITMENT, rk_hash, value, token_type, r], 5)
 pub fn hash_commitment(rk_hash: Field, value: Field, token_type: Field, r: Field) -> Field {
-    sponge_hash(&[Field::from(DOMAIN_COMMITMENT), rk_hash, value, token_type, r])
+    sponge_hash(&[
+        Field::from(DOMAIN_COMMITMENT),
+        rk_hash,
+        value,
+        token_type,
+        r,
+    ])
 }
 
 /// Hash two values for Merkle tree nodes
@@ -520,8 +526,21 @@ pub fn hash_nullifier(cm: Field, nk: Field) -> Field {
 
 /// Hash for transaction nullifier with domain separation and pool binding
 /// Matches Noir: Poseidon2::hash([DOMAIN_NULLIFIER, nk, chain_id, pool_id, from, nonce], 6)
-pub fn hash_tx_nullifier(nk: Field, chain_id: Field, pool_id: Field, from: Field, nonce: Field) -> Field {
-    sponge_hash(&[Field::from(DOMAIN_NULLIFIER), nk, chain_id, pool_id, from, nonce])
+pub fn hash_tx_nullifier(
+    nk: Field,
+    chain_id: Field,
+    pool_id: Field,
+    from: Field,
+    nonce: Field,
+) -> Field {
+    sponge_hash(&[
+        Field::from(DOMAIN_NULLIFIER),
+        nk,
+        chain_id,
+        pool_id,
+        from,
+        nonce,
+    ])
 }
 
 /// Hash for key derivation with domain separation
@@ -563,14 +582,18 @@ mod tests {
     #[test]
     fn test_sponge_hash_basic() {
         let result = sponge_hash(&[Field::from(1u64), Field::from(2u64), Field::from(3u64)]);
-        assert_ne!(result, Field::ZERO, "Sponge hash should produce non-zero output");
+        assert_ne!(
+            result,
+            Field::ZERO,
+            "Sponge hash should produce non-zero output"
+        );
     }
 
     #[test]
     fn test_merkle_node_sponge() {
         let result = hash_merkle_node(Field::ZERO, Field::ZERO);
         assert_ne!(result, Field::ZERO, "Merkle node hash should be non-zero");
-        
+
         let result2 = hash_merkle_node(Field::ZERO, Field::ZERO);
         assert_eq!(result, result2, "Merkle node hash should be deterministic");
     }
@@ -581,10 +604,10 @@ mod tests {
         let value = Field::from(1000u64);
         let token_type = Field::ZERO;
         let r = Field::from(456u64);
-        
+
         let result = hash_commitment(rk_hash, value, token_type, r);
         assert_ne!(result, Field::ZERO, "Commitment hash should be non-zero");
-        
+
         let result2 = hash_commitment(rk_hash, value, token_type, r);
         assert_eq!(result, result2, "Commitment hash should be deterministic");
     }
@@ -593,7 +616,7 @@ mod tests {
     fn test_nullifier_sponge() {
         let cm = Field::from(789u64);
         let nk = Field::from(101112u64);
-        
+
         let result = hash_nullifier(cm, nk);
         assert_ne!(result, Field::ZERO, "Nullifier hash should be non-zero");
     }
@@ -603,7 +626,7 @@ mod tests {
         let nk = Field::from(12345u64);
         let result = derive_rk_hash(nk);
         assert_ne!(result, Field::ZERO, "Derived rk_hash should be non-zero");
-        
+
         let result2 = derive_rk_hash(nk);
         assert_eq!(result, result2, "derive_rk_hash should be deterministic");
     }
@@ -615,26 +638,40 @@ mod tests {
         let pool_id = Field::from(1u64);
         let from = Field::from(0xdeadbeefu64);
         let nonce = Field::from(0u64);
-        
+
         let result = hash_tx_nullifier(nk, chain_id, pool_id, from, nonce);
         assert_ne!(result, Field::ZERO, "TX nullifier hash should be non-zero");
     }
 
     #[test]
     fn test_cross_language_vectors() {
-        
         let merkle_00 = hash_merkle_node(Field::ZERO, Field::ZERO);
         let merkle_123_456 = hash_merkle_node(Field::from(123u64), Field::from(456u64));
         let hash_1_2_3 = sponge_hash(&[Field::from(1u64), Field::from(2u64), Field::from(3u64)]);
         let hash_domain_2_0_0 = sponge_hash(&[Field::from(2u64), Field::ZERO, Field::ZERO]);
-        
-        let expected_merkle_00 = field_from_hex("1218536453df604871fd18460a1d5c2abf9d9cfcda586312bfc3b78d75e29cf0");
-        let expected_merkle_123_456 = field_from_hex("24cbf5ece05503c37381b5d7dfcaf96fe2aca3749cb1a5d4d2f5264e40872fa2");
-        let expected_hash_1_2_3 = field_from_hex("23864adb160dddf590f1d3303683ebcb914f828e2635f6e85a32f0a1aecd3dd8");
-        
-        assert_eq!(merkle_00, expected_merkle_00, "merkle_node(0,0) mismatch - Solidity/Noir must match");
-        assert_eq!(merkle_123_456, expected_merkle_123_456, "merkle_node(123,456) mismatch");
-        assert_eq!(hash_1_2_3, expected_hash_1_2_3, "sponge_hash([1,2,3]) mismatch");
-        assert_eq!(hash_domain_2_0_0, expected_merkle_00, "sponge_hash([2,0,0]) should equal merkle_node(0,0)");
+
+        let expected_merkle_00 =
+            field_from_hex("1218536453df604871fd18460a1d5c2abf9d9cfcda586312bfc3b78d75e29cf0");
+        let expected_merkle_123_456 =
+            field_from_hex("24cbf5ece05503c37381b5d7dfcaf96fe2aca3749cb1a5d4d2f5264e40872fa2");
+        let expected_hash_1_2_3 =
+            field_from_hex("23864adb160dddf590f1d3303683ebcb914f828e2635f6e85a32f0a1aecd3dd8");
+
+        assert_eq!(
+            merkle_00, expected_merkle_00,
+            "merkle_node(0,0) mismatch - Solidity/Noir must match"
+        );
+        assert_eq!(
+            merkle_123_456, expected_merkle_123_456,
+            "merkle_node(123,456) mismatch"
+        );
+        assert_eq!(
+            hash_1_2_3, expected_hash_1_2_3,
+            "sponge_hash([1,2,3]) mismatch"
+        );
+        assert_eq!(
+            hash_domain_2_0_0, expected_merkle_00,
+            "sponge_hash([2,0,0]) should equal merkle_node(0,0)"
+        );
     }
 }

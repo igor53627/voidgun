@@ -14,7 +14,7 @@ sol! {
             address token,
             bytes calldata ciphertext
         ) external payable;
-        
+
         /// Execute a shielded transfer
         function shieldedTransfer(
             uint256[] calldata publicInputs,
@@ -22,7 +22,7 @@ sol! {
             bytes calldata ciphertextOut,
             bytes calldata ciphertextChange
         ) external;
-        
+
         /// Withdraw tokens from the shielded pool
         function withdraw(
             uint256[] calldata publicInputs,
@@ -31,19 +31,19 @@ sol! {
             address token,
             uint256 value
         ) external;
-        
+
         /// Check if a root is known
         function isKnownRoot(uint256 root) external view returns (bool);
-        
+
         /// Check if a note nullifier has been used
         function isNullifiedNote(uint256 nullifier) external view returns (bool);
-        
+
         /// Check if a tx nullifier has been used
         function isNullifiedTx(uint256 nullifier) external view returns (bool);
-        
+
         /// Get current merkle root
         function currentRoot() external view returns (uint256);
-        
+
         /// Events
         event Deposit(
             uint256 indexed commitment,
@@ -53,7 +53,7 @@ sol! {
             uint256 leafIndex,
             uint256 newRoot
         );
-        
+
         event Transfer(
             uint256 indexed nfNote,
             uint256 indexed nfTx,
@@ -63,7 +63,7 @@ sol! {
             bytes ciphertextOut,
             bytes ciphertextChange
         );
-        
+
         event Withdrawal(
             uint256 indexed nfNote,
             uint256 indexed nfTx,

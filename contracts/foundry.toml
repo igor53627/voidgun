@@ -9,20 +9,25 @@ evm_version = "osaka"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
+fs_permissions = [{ access = "read", path = "./verifier" }]
 
 [rpc_endpoints]
 tenderly = "${TENDERLY_RPC_URL}"
 
-# Profile for compiling TransferVerifier without via_ir
+# Profile for compiling HonkVerifier without via_ir
 # The verifier contract has stack-too-deep issues with via_ir=true
-# Build with: FOUNDRY_PROFILE=verifier forge build
+# 
+# Build verifier separately with:
+#   cd verifier && solc --optimize --optimize-runs 1 --bin --abi HonkVerifier.sol -o compiled
+#
+# Or use forge with this profile (note: may have issues with foundry cache):
+#   FOUNDRY_PROFILE=verifier forge build
 [profile.verifier]
 src = "verifier"
-test = "test"
+test = "verifier"
 out = "out-verifier"
-libs = ["lib"]
+libs = []
 solc = "0.8.31"
-remappings = ["@openzeppelin/=lib/openzeppelin-contracts/"]
 evm_version = "osaka"
 optimizer = true
 optimizer_runs = 1

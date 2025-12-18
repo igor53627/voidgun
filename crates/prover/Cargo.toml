@@ -18,7 +18,15 @@ once_cell.workspace = true
 base64.workspace = true
 tempfile = "3"
 flate2 = "1"
-hex = "0.4"
+hex = "0.4.3"
+
+[dev-dependencies]
+alloy-primitives.workspace = true
+alloy = { version = "1.0", features = ["full", "sol-types"] }
+rand = "0.8"
+k256 = { version = "0.13", features = ["ecdsa"] }
+tokio = { version = "1", features = ["full", "rt-multi-thread", "macros"] }
+dotenv = "0.15"
 
 [build-dependencies]
 # For calling nargo at build time
