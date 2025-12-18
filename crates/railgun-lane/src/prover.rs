@@ -608,9 +608,9 @@ impl RailgunProver {
             tracing::info!("Using snarkjs for proof generation (USE_SNARKJS=1)");
 
             // Export witness to wtns format
-            // Note: The circuit expects exactly expected_len - 1 elements (no padding)
-            // because arkworks adds the "1" constant, but snarkjs WASM doesn't include it
-            let original_len = full_assignment.len() - 1; // Remove the padding we added
+            // Note: We remove the zero-padding we added earlier to reach expected_len.
+            // The snarkjs WASM witness includes w_0=1 like arkworks, so we keep index 0.
+            let original_len = full_assignment.len() - 1; // Remove the zero-padding we added
             let original_assignment = &full_assignment[..original_len];
             tracing::debug!("Exporting {} witness elements for snarkjs", original_len);
             let witness_wtns = self.export_witness_to_wtns(original_assignment)?;
@@ -840,70 +840,25 @@ impl RailgunProver {
     }
 
     /// Generate shield proof
-    pub async fn prove_shield(&self, witness: ShieldWitness) -> Result<RailgunProof, ProverError> {
-        let _variant = CircuitVariant::new(1, 1)?;
-
-        // Build inputs
-        let mut inputs: HashMap<String, Vec<BigInt>> = HashMap::new();
-        inputs.insert(
-            "commitment".to_string(),
-            vec![Self::field_to_bigint(&witness.commitment)],
-        );
-        inputs.insert("value".to_string(), vec![BigInt::from(witness.value)]);
-        inputs.insert(
-            "token".to_string(),
-            vec![Self::field_to_bigint(&witness.token)],
-        );
-        inputs.insert(
-            "recipientMpk".to_string(),
-            vec![Self::field_to_bigint(&witness.recipient_mpk)],
-        );
-        inputs.insert(
-            "random".to_string(),
-            vec![Self::field_to_bigint(&witness.random)],
-        );
-
-        // For shield, the public inputs are typically: commitment, value, token
-        let public_inputs = vec![
-            witness.commitment,
-            Field::from(witness.value),
-            witness.token,
-        ];
-
-        // Placeholder proof until we have actual shield circuit WASM
-        Ok(RailgunProof {
-            proof_bytes: vec![0u8; 192], // Compressed Groth16 proof size
-            public_inputs,
-        })
+    pub async fn prove_shield(&self, _witness: ShieldWitness) -> Result<RailgunProof, ProverError> {
+        // Shield circuit WASM not yet available
+        // Note: Shielding doesn't require a ZK proof - tokens are deposited directly via shield()
+        // TODO: Implement actual shield proof generation if/when artifacts become available
+        Err(ProverError::CircuitNotFound(
+            "shield circuit not implemented - use on-chain shield() directly".to_string(),
+        ))
     }
 
     /// Generate unshield proof
     pub async fn prove_unshield(
         &self,
-        witness: UnshieldWitness,
+        _witness: UnshieldWitness,
     ) -> Result<RailgunProof, ProverError> {
-        let _variant = CircuitVariant::new(1, 1)?;
-
-        let nullifier = witness.input_note.nullifier(witness.nullifying_key);
-
-        // Recipient as field element
-        let mut recipient_bytes = [0u8; 32];
-        recipient_bytes[12..32].copy_from_slice(&witness.recipient);
-        let recipient_field = Field::from_be_bytes_mod_order(&recipient_bytes);
-
-        let public_inputs = vec![
-            witness.merkle_root,
-            nullifier,
-            Field::from(witness.input_note.value),
-            witness.input_note.token,
-            recipient_field,
-        ];
-
-        // Placeholder proof
-        Ok(RailgunProof {
-            proof_bytes: vec![0u8; 192],
-            public_inputs,
-        })
+        // Unshield circuit WASM not yet available
+        // TODO: Implement actual unshield proof generation when artifacts are available
+        Err(ProverError::CircuitNotFound(
+            "unshield circuit not implemented - use transact with unshield flag".to_string(),
+        ))
     }
 
     /// Export witness to wtns binary format for snarkjs

@@ -1,4 +1,4 @@
-pub mod pool;
 pub mod bindings;
+pub mod pool;
 
-pub use pool::{VoidgunPoolConfig, DepositEvent, TransferEvent, WithdrawalEvent};
+pub use pool::{DepositEvent, TransferEvent, VoidgunPoolConfig, WithdrawalEvent};

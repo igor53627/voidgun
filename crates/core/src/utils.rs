@@ -1,6 +1,6 @@
+use alloy_primitives::{Address, U256};
 use ark_bn254::Fr as Field;
 use ark_ff::PrimeField;
-use alloy_primitives::{Address, U256};
 
 pub fn u256_to_field(value: U256) -> Field {
     Field::from_be_bytes_mod_order(&value.to_be_bytes::<32>())

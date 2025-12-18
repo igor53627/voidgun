@@ -32,7 +32,7 @@ pub struct ReceivingKey {
 
 impl ViewingKey {
     /// Derive viewing key from signature of EXPORT_VK_MESSAGE
-    /// 
+    ///
     /// Algorithm:
     /// 1. seed = Poseidon2(signature)
     /// 2. nk = Poseidon2(seed, 1)
@@ -43,10 +43,10 @@ impl ViewingKey {
         let nk = hash_key_derivation(&[seed, Field::from(1u64)]);
         let ivk = hash_key_derivation(&[seed, Field::from(2u64)]);
         let ovk = hash_key_derivation(&[seed, Field::from(3u64)]);
-        
+
         Self { pk, nk, ivk, ovk }
     }
-    
+
     /// Derive the corresponding receiving key
     pub fn to_receiving_key(&self) -> ReceivingKey {
         let pnk = hash_key_derivation(&[self.nk, Field::from(0u64)]);
@@ -54,7 +54,7 @@ impl ViewingKey {
         // In practice, need to do scalar multiplication on embedded curve
         let ek_x = hash_key_derivation(&[self.nk, Field::from(1u64)]);
         let ek_y = hash_key_derivation(&[self.nk, Field::from(2u64)]);
-        
+
         ReceivingKey {
             pk: self.pk.clone(),
             pnk,
@@ -62,39 +62,39 @@ impl ViewingKey {
             ek_y,
         }
     }
-    
+
     /// Serialize to bytes for storage
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
-        
+
         // pk length + pk
         bytes.extend_from_slice(&(self.pk.len() as u32).to_be_bytes());
         bytes.extend_from_slice(&self.pk);
-        
+
         // nk, ivk, ovk (each 32 bytes)
         bytes.extend_from_slice(&self.nk.into_bigint().to_bytes_be());
         bytes.extend_from_slice(&self.ivk.into_bigint().to_bytes_be());
         bytes.extend_from_slice(&self.ovk.into_bigint().to_bytes_be());
-        
+
         bytes
     }
-    
+
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 4 {
             return None;
         }
-        
+
         let pk_len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
         if bytes.len() < 4 + pk_len + 96 {
             return None;
         }
-        
+
         let pk = bytes[4..4 + pk_len].to_vec();
         let nk = Field::from_be_bytes_mod_order(&bytes[4 + pk_len..4 + pk_len + 32]);
         let ivk = Field::from_be_bytes_mod_order(&bytes[4 + pk_len + 32..4 + pk_len + 64]);
         let ovk = Field::from_be_bytes_mod_order(&bytes[4 + pk_len + 64..4 + pk_len + 96]);
-        
+
         Some(Self { pk, nk, ivk, ovk })
     }
 }

@@ -1,9 +1,9 @@
-use ark_bn254::Fr as Field;
 use alloy_primitives::{Address, U256};
+use ark_bn254::Fr as Field;
 
 use crate::keys::ReceivingKey;
 use crate::poseidon2::{hash_commitment, hash_nullifier};
-use crate::utils::{u256_to_field, address_to_field};
+use crate::utils::{address_to_field, u256_to_field};
 
 /// A Voidgun Note (UTXO in the shielded pool)
 #[derive(Clone, Debug)]
@@ -39,7 +39,7 @@ impl Note {
             r,
         }
     }
-    
+
     /// Compute note commitment
     /// cm = Poseidon2::hash([DOMAIN_COMMITMENT, rk_hash, value, token_type, r], 5)
     pub fn commitment(&self) -> Field {
@@ -47,7 +47,7 @@ impl Note {
         let token_field = address_to_field(self.token_type);
         hash_commitment(self.rk_hash, value_field, token_field, self.r)
     }
-    
+
     /// Compute note nullifier given the nullifying key
     /// nf = Poseidon2::hash([DOMAIN_NULLIFIER, cm, nk], 3)
     pub fn nullifier(&self, nk: Field) -> Field {
@@ -57,13 +57,13 @@ impl Note {
 }
 
 /// Information about a note for display/querying
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct NoteInfo {
     pub commitment: Field,
+    pub rk_hash: Field,
     pub value: U256,
     pub token_type: Address,
+    pub r: Field,
     pub merkle_index: u64,
     pub spent: bool,
 }
-
-
