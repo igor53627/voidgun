@@ -1253,7 +1253,7 @@ async fn run_e2e_shield_and_verify(rpc_url: &str) {
                                     railgun_lane::append_commitments_to_tree(
                                         &mut tree,
                                         &new_commitments,
-                                    );
+                                    ).expect("append commitments failed");
                                     println!(
                                         "  [OK] Tree now has {} leaves after RPC sync",
                                         tree.leaves.len()
