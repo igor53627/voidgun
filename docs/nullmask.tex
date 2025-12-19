@@ -1,0 +1,573 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{verbatim}
+\usepackage{fancyvrb}
+
+\geometry{margin=1in}
+
+\newtheorem{definition}{Definition}
+
+\title{Nullmask: transact privately from any multi-chain wallet}
+\author{Tomas Krnak}
+\date{November 22, 2025}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+Nullmask is a novel architecture of on-chain privacy that enables users to transact privately from any existing multichain wallet. It requires no new wallets, seeds, backups, or special addresses---just a one-time setup that takes less than 30 seconds.
+
+Instead of depending on wallets implementing new privacy features or users migrating to new wallets, Nullmask integrates seamlessly into any existing multichain wallet as a new virtual network. This network is not a real network like Sepolia, it's just a mechanism that allows us to insert a custom RPC proxy service between a wallet and a full RPC node. This proxy shields outgoing transactions and decrypts incoming transactions for wallet accounts. It can run either on a remote server or seamlessly in the background on a user's device (mobile app, browser extension).
+
+Our design is only possible due recent breakthroughs in zk-SNARKs. Specifically, UltraHonk prover allows us to prove integrity of an EIP-1559 transaction on a user-grade device in about 10 seconds.
+
+\subsection{Our Contributions}
+
+\begin{itemize}
+    \item \textbf{Privacy via proxy:} We introduce a novel on-chain privacy architecture via a proxy inserted between a wallet and the blockchain. We investigate three different security models for this architecture, each offering distinct security-performance trade-offs.
+    
+    \item \textbf{Unified user interface:} Our design eliminates the need for specialized front-end software. Nullmask VPN integrates into existing multichain wallets as a new network, where all transactions are completely private. External observers cannot link deposits to or withdrawals from this network. Users can transact, withdraw, swap, bridge through interfaces of the wallet they are used to.
+    
+    \item \textbf{Shielded transfers for hardware wallets:} Unlike all other major privacy protocols (Tornado Cash, Railgun, 0xbow, Hinkal, zkBob), our design does not eject the spending authority from the wallet. Only the viewing keys are derived from the wallet signature. Therefore Nullmask is the first EVM-compatible privacy pool that enables secure shielded transfers directly from hardware wallets.
+    
+    \item \textbf{Facilitating private voting and airdrops:} Nullmask PIR Key Server can simplify usage of other privacy protocols like private airdrop and voting.
+    
+    \item \textbf{Deterministic key derivation:} We derive all additional cryptographic material deterministically from wallet signatures, ensuring the private spending key remains secure within the user's wallet. This eliminates the need for additional seeds or backups, as the extra key material can be recovered by simply re-signing a protocol-fixed message with the wallet.
+\end{itemize}
+
+\section{Nullmask Architecture}
+
+Our architecture consists of several parties (see Figure~\ref{fig:architecture}):
+
+\begin{itemize}
+    \item \textbf{User:} An end user utilizing their multichain wallet to send and receive transactions and swap tokens.
+    
+    \item \textbf{Wallet:} A standard wallet supporting the private sign method and the addition of custom networks with custom RPC servers.
+    
+    \item \textbf{Proxy:} An RPC service that runs either locally or remotely with the following functionalities:
+    \begin{itemize}
+        \item Generates a Viewing Key and stores it locally.
+        \item Generates a Receiving Key and posts it to the Key Server.
+        \item Responds to wallet queries (such as \texttt{eth\_sendTransaction} and \texttt{eth\_getBalance}).
+        \item Shields outgoing transactions and forwards them to Relayers.
+        \item Scans the Contract for new transactions, trial-decrypts them, and maintains the wallet's shielded balance.
+    \end{itemize}
+    
+    \item \textbf{Relayers:} A decentralized network of servers that receives shielded transactions and relays them to the contract, paying L1 fees. They also hide the Proxies' IP addresses.
+    
+    \item \textbf{Key Server:} Stores (account address, shielded address) pairs. Proxies connect to Key Servers to resolve account addresses to shielded addresses, which are necessary for shielding outgoing transactions.
+    
+    \item \textbf{Contract:} An L1 contract behaving as a Privacy Pool with methods such as \texttt{deposit}, \texttt{withdraw}, and \texttt{shieldedTransfer}.
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\begin{verbatim}
+                          Nullmask VPN                  Blockchain
+                    .- - - - - - - - - - - -.      .- - - - - - - -.
+                   '                         '    '                 '
+  +------+      +--------+      +-------+      +----------+      +----------+
+  |      |      |        |      |       |      |          |      |          |
+  | User |<---->| Wallet |<---->| Proxy |<---->| Relayers |<---->| Contract |
+  |      |      |        |      |       |      |          |      |          |
+  +------+      +--------+      +-------+      +----------+      +----------+
+                                    |
+                                    v
+                               +----------+
+                               |   Key    |
+                               |  Server  |
+                               +----------+
+                   '                         '    '                 '
+                    '- - - - - - - - - - - -'      '- - - - - - - -'
+\end{verbatim}
+\caption{Nullmask Architecture}
+\label{fig:architecture}
+\end{figure}
+
+\section{Security Assumptions}
+
+Our ultimate privacy objective is: All account incoming and outgoing transfers are completely private. No external observer can decrypt fields of the shielded transactions. Only the Proxy that has access to the account viewing key can inspect account transaction history. This applies to all three models below.
+
+Further, we distinguish three security models representing trade-offs between zk circuit complexity and Proxy credibility.
+
+\subsection{Proxy with spending authority}
+
+In this model, the Proxy has the ability to authorize any type of transfer. It processes an outgoing transaction simply as an instruction for sending a shielded transaction.
+
+For example, 0xbow Privacy Pools matches this security model. The app stores a spending key and executes withdrawals without any confirmation from the connected wallet.
+
+This model requires minimal zk circuits, but it may incentivize the emergence of scam services aimed at stealing users' shielded funds. Furthermore, this model implies that the proxy must be owned by the user, for example by being run locally on their device.
+
+Within this threat model, Nullmask could use Privacy Pools or Railgun as a back-end, enabling users to manage their Privacy Pools and Railgun shielded balances directly from their multichain wallets.
+
+\subsection{Proxy without spending authority}
+
+In this model, only transactions authorized by the wallet can be turned into valid shielded transactions. The Proxy processes a signed outgoing transaction as part of the witness for a zk circuit that authorizes a shielded action.
+
+For example, the Zcash Sapling protocol \cite{HBHW25} splits the spending authority (Wallet) and the viewing authority (Proxy). As a result, a very simple device like a hardware wallet can fully control account spends while the computation of the shielded transaction validity proof can be outsourced to a potentially corrupted host.
+
+This design requires ECDSA signature verification inside a zk circuit. Here we build on very recent advancements in the field of zk-SNARKs. Thanks to many years of optimization, it is now feasible to compute a zk-proof of an ECDSA signature on a consumer-grade device within seconds. (This was quite difficult in the past \cite{AG22})
+
+\subsection{Fully verifiable Proxy}
+
+While the Proxy without spending authority cannot initiate arbitrary spends, there might still exist protocol violations resulting in burning user's funds. For example, an incorrect note encryption can result in an on-chain note that nobody can decrypt and spend.
+
+In the case of Zcash Sapling, all transaction shielding has to be validated by recomputation at the device with the spending authority to mitigate any type of fund loss.
+
+In the case of Nullmask, we assume that we cannot run any additional checks in the wallet. Instead, all shielding procedures (note encryption, address resolution, etc.) must be validated within the zk circuit.
+
+This model is suitable for a setup where the Proxy is run by a potentially corrupted third party on a remote server. The model guarantees that using the Proxy can only enhance the user's privacy without exposing them to any additional risks related to fund loss.
+
+A zk circuit must verify an ECDSA signature of a transaction and integrity of the recipient's Receiving Key (Section~\ref{sec:rk-integrity}).
+
+\begin{figure}[h]
+\centering
+\begin{verbatim}
+    privacy-enhanced wallet architecture (Railgun, Hinkal)
+    ======================================================
+    
+                              special wallet
+                       +---------------------------+
+                       |                           |
+      +------+         |  +---------+  +--------+  |      +----------+      +----------+
+      |      | balance |  |         |  | viewing|  |      |          |      |          |
+      | user |<--------|  |  seed   |->|  key   |  |----->| relayers |----->| contract |
+      |      |         |  |         |  +--------+  |      |          |      |          |
+      +------+ trans.  |  |    |    |              |      +----------+      +----------+
+               ------->|  |    v    |  +--------+  |
+                       |  |         |  |spending|  |
+                       |  +---------+  |  key   |  |
+                       |               +--------+  |
+                       +---------------------------+
+
+
+    web3 app architecture (0xbow, zkBob)
+    =====================================
+    
+                                web3 app
+                       +---------------------------+
+                       |                           |
+      +------+ balance |  +---------+  +--------+  |      +----------+      +----------+
+      |      |<--------|  |         |  | viewing|  |      |          |      |          |
+      | user | trans.  |  |         |->|  key   |  |----->| relayers |----->| contract |
+      |      |-------->|  |         |  +--------+  |      |          |      |          |
+      +------+  login  |  |         |              |      +----------+      +----------+
+                       |  |    O    |  +--------+  |
+      +--------+       |  |   /|\   |  |spending|  |
+      | wallet |------>|  |   / \   |  |  key   |  |
+      +--------+ sig.  |  +---------+  +--------+  |
+                       +---------------------------+
+
+
+    privacy-via-proxy architecture (Nullmask)
+    ==========================================
+    
+                                  proxy
+                           +---------------+
+      +------+             |               |
+      |      |             |   +--------+  |      +----------+      +----------+
+      | User |             |   | viewing|  |      |          |      |          |
+      |      |             |   |  key   |  |----->| Relayers |----->| contract |
+      +------+             |   +--------+  |      |          |      |          |
+         |      trans.     |               |      +----------+      +----------+
+         v     <------     +-------+-------+
+      +--------+ balance          |
+      | wallet |-------->         v
+      +--------+  sig.     +------------+
+                           | key server |
+                           +------------+
+\end{verbatim}
+\caption{Architecture Comparison}
+\label{fig:comparison}
+\end{figure}
+
+\section{Key Derivation}
+
+Similarly to other privacy protocols, Nullmask needs additional key material to realize private transfers. All these keys are derived deterministically from a wallet signature. A signature is a strong source of entropy by the security of the underlying signature scheme. Furthermore, since all modern wallets use deterministic signatures defined by RFC 6979, all keys can be recovered by re-signing a fixed message.
+
+The Nullmask Viewing Key serves for shielding and de-shielding transactions. It grants view access to the account transaction history. The Nullmask Receiving Key serves for receiving funds.
+
+Users do not have to know or store either of these two keys. The Viewing Key and the Receiving Key are generated by the proxy service. The Viewing Key remains stored there while the Receiving Key is posted to a Nullmask Key Server. All instances of the Nullmask proxy can query the Key Server to fetch additional key material for shielded transfers.
+
+In practical implementation, we make use of a zk-SNARK friendly curve such as Baby Jubjub, BNB254 or Pasta. We denote this curve by $E$ and its scalar field by $\mathbb{F}$.
+
+\begin{definition}[Nullmask Viewing Key]
+A Nullmask Viewing Key is a tuple $(\mathsf{pk}, \mathsf{nk}, \mathsf{ivk}, \mathsf{ovk})$ where:
+\begin{itemize}
+    \item $\mathsf{pk}$: Public Key, a secp256k1 point corresponding to the wallet account public key,
+    \item $\mathsf{nk} \in \mathbb{F}$: Nullifying Key used for derivation of deterministic note nullifiers,
+    \item $\mathsf{ivk} \in \mathbb{F}$: Incoming Viewing Key serving for trial-decryption of incoming notes,
+    \item $\mathsf{ovk}$: Outgoing Viewing Key, an $E$ scalar serving to encrypt receipts of the notes sent from the account.
+\end{itemize}
+\end{definition}
+
+\begin{definition}[EXPORT\_VK\_MESSAGE]
+The Nullmask EXPORT\_VK\_MESSAGE is a special protocol-fixed message. The signature of this message serves as an entropy source for all other Nullmask keys. In the current version of the protocol we use: ``Authorize view-only access to Nullmask shielded account.''
+\end{definition}
+
+\begin{algorithm}
+\caption{Derive Viewing Key}
+\begin{algorithmic}[1]
+\Require wallet connection
+\Ensure A Viewing Key $(\mathsf{pk}, \mathsf{nk}, \mathsf{ivk}, \mathsf{ovk})$
+\State Request a \texttt{private\_sign} of the message EXPORT\_VK\_MESSAGE.
+\State Recover $\mathsf{pk}$ from signature.
+\State $\mathsf{seed} \gets \text{Poseidon2}(\mathsf{signature})$.
+\State $\mathsf{nk} \gets \text{Poseidon2}(\mathsf{seed}, 1)$.
+\State $\mathsf{ivk} \gets \text{Poseidon2}(\mathsf{seed}, 2)$.
+\State $\mathsf{ovk} \gets \text{Poseidon2}(\mathsf{seed}, 3)$.
+\State \Return $(\mathsf{pk}, \mathsf{nk}, \mathsf{ivk}, \mathsf{ovk})$.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{definition}[Nullmask Receiving Key]
+A Nullmask Receiving Key is a triple $(\mathsf{pk}, \mathsf{pnk}, \mathsf{ek})$ where:
+\begin{itemize}
+    \item $\mathsf{pk}$: Public Key, a secp256k1 point corresponding to wallet account public key,
+    \item $\mathsf{pnk} \in \mathbb{F}$: Public Nullifying Key is the hash of $\mathsf{nk}$,
+    \item $\mathsf{ek}$: Encryption Key, an $E$ point serving for encrypting notes for this recipient.
+\end{itemize}
+\end{definition}
+
+\begin{algorithm}
+\caption{Derive Receiving Key}
+\begin{algorithmic}[1]
+\Require A Viewing Key $(\mathsf{pk}, \mathsf{nk}, \mathsf{ivk}, \mathsf{ovk})$
+\Ensure The corresponding Receiving Key $(\mathsf{pk}, \mathsf{pnk}, \mathsf{ek})$
+\State $\mathsf{pnk} \gets \text{Poseidon2}(\mathsf{nk})$.
+\State $\mathsf{ek} \gets \mathsf{ivk} \cdot G$.
+\State \Return $(\mathsf{pk}, \mathsf{pnk}, \mathsf{ek})$.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{figure}[h]
+\centering
+\begin{verbatim}
+                                                     Viewing Key        Receiving Key
+                                                    .-----------.       .-----------.
+                                                   |             |     |             |
+    +--------------------+                         |  +------+   |     |  +------+   |
+    | EXPORT_VK_MESSAGE  |--------.                |  |  pk  |   |     |  |  pk  |   |
+    +--------------------+         \               |  +------+   |     |  +------+   |
+                                    \   +---+      |             |     |             |
+                                     '->| 1 |---.  |  +------+   |  H  |  +------+   |
+    .----------.      .----------.      +---+   '->|->|  nk  |---|---->|->| pnk  |   |
+    |  secret  |      |   ECDSA  |  H   +---+      |  +------+   |     |  +------+   |
+    |   key    |----->|   sign   |--->[ seed ]     |             |     |             |
+    '----------'      '----------'      +---+      |  +------+   |  *G |  +------+   |
+                                     .->| 2 |----->|->| ivk  |---|---->|->|  ek  |   |
+         Wallet                     /   +---+      |  +------+   |     |  +------+   |
+    .- - - - - - - - - - - - - - - -    +---+      |             |     |             |
+                                     '->| 3 |----->|->| ovk  |   |     |             |
+                                        +---+      |  +------+   |     |             |
+                                                   |             |     |             |
+                                                    '-----------'       '-----------'
+\end{verbatim}
+\caption{Keys Derivation: H denotes Poseidon2 Hashing function.}
+\label{fig:keys}
+\end{figure}
+
+\section{Proxy Service}
+
+\subsection{Local and Remote}
+
+The Nullmask proxy can run locally on the client side (mobile app or browser extension) or on a remote server. A locally running proxy provides full privacy, but requires installation, which can still be an obstacle for frictionless user onboarding.
+
+Alternatively, the proxy can run on a remote server and be accessed via a webpage. This setup still guarantees on-chain privacy; however, the server owner can track user transfers. This approach resembles Houdini private swaps \cite{hou}, where nobody can trace on-chain swaps, except the service operator. In the case of a remotely running proxy, the Fully verifiable Proxy (Section 3.3) model should be deployed.
+
+\subsection{User Onboarding}
+
+The onboarding procedure is straightforward:
+\begin{enumerate}
+    \item User downloads the Nullmask app (mobile app or browser extension) and grants necessary permissions.
+    \item User opens the Nullmask app and connects their wallet.
+    \item App prompts the wallet to add a new network.
+    \item App requests the wallet to sign EXPORT\_VK\_MESSAGE (Definition 2).
+\end{enumerate}
+
+From this moment, everything is set up. The user fully controls their Nullmask shielded balance from their wallet. They can send transactions as usual and bridge their tokens between the Nullmask network and other networks. If the Nullmask proxy runs on a remote server, step (1) is skipped.
+
+\section{Key Server}
+\label{sec:rk-integrity}
+
+The Key Server stores and distributes Receiving Keys. While users keep using their standard account addresses for all transactions, the proxy in the background resolves these to the Receiving Keys that are necessary for transaction shielding. Key Server design brings up two challenges described in the following two subsections.
+
+\subsection{Receiving Key Integrity}
+
+Only correctly derived Receiving Keys should be accepted by the Key Server. Here we propose two mechanisms preventing incorrect keys from being uploaded to the Key Server.
+
+\textbf{Signed Receiving Keys:} Before publishing a Receiving Key, the Proxy requests the wallet to sign it. The signature does not guarantee correctness of the key, but at least it prevents other players from posting alternative Receiving Keys for the account address.
+
+\textbf{Receiving Key integrity proof:} The Receiving Key is published together with a zk-proof of correctness of its computation. This requires verification of an ECDSA signature inside the circuit.
+
+Since the integrity proof verification takes only 10 seconds on a user grade device and does not require any additional actions from the user, we currently employ this approach.
+
+\subsection{Request Obfuscation}
+
+Key Server requests may correlate with shielded transaction recipients and thus leak private information. Specifically, when Alice's proxy requests Bob's Receiving Key and then sends a shielded transfer, the Key Server can anticipate who is the receiver of this transaction.
+
+Ideally, we would like to make requests to the Key Server private. This problem is called Private Information Retrieval (PIR) and has been studied extensively both in industry and academia. There exist many mechanisms for request obfuscation, ranging from decoy request engineering to cryptographically secure practical PIR servers \cite{DPC23, ZPSZ23}.
+
+For a PIR setup, we use cuckoo hash tables to index the database with custom keys (addresses) without losing query privacy. As an example of the current PIR efficiency, we quote PianoPIR \cite{ZPSZ23}. Authors of the article claim that: Experimental results show that for a 100GB database and with 60ms round-trip latency, Piano achieves 73ms response time.
+
+\subsection{Private Voting and Airdrop Facilitation}
+
+Nullmask key infrastructure can be used to enhance privacy of other services. For example, it can facilitate private voting and private airdrops. These protocols typically require pre-registration of eligible participants to assign them nullifying keys \cite{AG22}. The PLUME signature \cite{GG22} (ERC-7524) was proposed to eliminate this extra communication round, but it has not been widely adopted.
+
+Developers can eliminate this setup phase by reusing Nullmask Public Nullifying keys instead.
+
+\section{Notes}
+
+We use UTXO model for shielded account state. We call UTXO Notes.
+
+\begin{definition}[Nullmask Note]
+A Nullmask Note is a tuple $(\mathsf{rk}, \mathsf{value}, r)$ where:
+\begin{itemize}
+    \item $\mathsf{rk}$: is a Receiving Key.
+    \item $\mathsf{value}$: a uint256 representing note value.
+    \item $r \in \mathbb{F}$: A Trapdoor responsible for hiding property of the commitment.
+\end{itemize}
+\end{definition}
+
+\begin{definition}[Note commitment and nullifier]
+For a Note $(\mathsf{rk}, \mathsf{value}, r)$, Note commitment $\mathsf{cm}$ and Note nullifier $\mathsf{nf}$ are defined as
+\begin{align}
+\mathsf{cm} &:= \text{Poseidon2}(\mathsf{rk}, \mathsf{value}, r) \in \mathbb{F} \\
+\mathsf{nf} &:= \text{Poseidon2}(\mathsf{cm}, \mathsf{nk}) \in \mathbb{F}, \text{ where } \text{Poseidon2}(\mathsf{nk}) = \mathsf{rk}.\mathsf{pnk}.
+\end{align}
+\end{definition}
+
+\subsection{Note Encryption}
+
+We employ standard key encapsulation for the symmetric encryption of Notes. Note encryption key is derived via Diffie-Hellman key exchange using a recipient receiving key and an ephemeral note key. Note sender also attaches encrypted note viewing key $\mathsf{ek}_{\mathsf{out}}$ to be able to recover history of outgoing transfers.
+
+\begin{algorithm}
+\caption{Encrypt Note}
+\begin{algorithmic}[1]
+\Require A Note $\mathsf{note} = (\mathsf{rk}, \mathsf{value}, r)$ whose commitment is $\mathsf{cm}$
+\Require Recipient's Encryption Key $\mathsf{ek}$
+\Require Sender's Outgoing Viewing Key $\mathsf{ovk}$
+\Ensure Encrypted Note $C_{\mathsf{note}}$
+\State $\mathsf{epk} \gets \text{randomScalar}()$
+\State $\mathsf{dh}_{\mathsf{ek}} \gets \mathsf{epk} \cdot G$
+\State $\mathsf{shared\_secret} \gets \text{Poseidon2}(\mathsf{epk} \cdot \mathsf{ek})$
+\State $\mathsf{ciphertext} \gets \text{SymEncrypt}_{\mathsf{shared\_secret}}(\mathsf{note})$
+\State $\mathsf{ek}_{\mathsf{out}} \gets \mathsf{shared\_secret} + \text{Poseidon2}(\mathsf{cm}, \mathsf{ovk})$
+\State \Return $(\mathsf{dh}_{\mathsf{ek}}, \mathsf{ek}_{\mathsf{out}}, \mathsf{ciphertext})$
+\end{algorithmic}
+\end{algorithm}
+
+Function SymEncrypt is a symmetric encryption of Notes fields with shared secret. For maximal zk-circuit friendliness, we encrypt $i$-th Note field by masking it with $\text{Poseidon2}(\mathsf{shared\_secret}, i)$.
+
+\section{Shielded Transfers}
+
+A shielded transfer nullifies a Note and produces two new Notes: one for the recipient and a change Note for the sender. If one Note is not enough to fund a transfer, multiple Notes can be merged into one via the Join functionality described below.
+
+\subsection{Transaction Nullifiers}
+
+To fulfill security assumptions (Section 3.2) and (Section 3.3), we use Transaction Nullifiers. These nullifiers prevent malicious proxy from replaying the same transaction. The Nullmask Contract stores all Transaction Nullifiers and rejects transactions with already used nullifiers. Each executed transaction at EVM is ``nullified'' by unique $(\mathsf{chainId}, \mathsf{address}, \mathsf{nonce})$ triple. Nullmask shielded actions mask this triple by hashing it together with nullifying key.
+
+\begin{definition}[Transaction Nullifier]
+For a signed transaction $\mathsf{tx}$, Transaction Nullifier
+\begin{equation}
+\mathsf{nf}_{\mathsf{tx}} := \text{Poseidon2}(\mathsf{nk}, \mathsf{tx.chainId}, \mathsf{tx.from}, \mathsf{tx.nonce})
+\end{equation}
+\end{definition}
+
+\subsection{Transaction Shielding}
+
+\begin{algorithm}
+\caption{Shield a Transaction}
+\begin{algorithmic}[1]
+\Require an EIP-1559 transaction $\mathsf{tx}$
+\Require a sender's Viewing Key $\mathsf{vk} = (\mathsf{pk}_s, \mathsf{nk}, \mathsf{ivk}, \mathsf{ovk})$
+\Require a sender's Receiving Key $\mathsf{rk}_s = (\mathsf{pk}_s, \mathsf{nk}_s, \mathsf{ek}_s)$
+\Require a recipient's Receiving Key $\mathsf{rk}_r = (\mathsf{pk}_r, \mathsf{pnk}_r, \mathsf{ek}_r)$
+\Require a funding Note $(\mathsf{rk}_s, \mathsf{value}_{\mathsf{in}}, r_{\mathsf{in}})$
+\Require a merkle tree path $(\mathsf{root}, \mathsf{path})$ of the funding note
+\Ensure Shielded transaction $\mathsf{shieldedtx}$
+\State Assert $\mathsf{tx.to} = \text{address}(\mathsf{pk}_r)$.
+\State $\mathsf{value}_{\mathsf{out}} := \mathsf{tx.amount}$.
+\State $\mathsf{value}_{\mathsf{change}} := \mathsf{value}_{\mathsf{in}} - \mathsf{value}_{\mathsf{out}}$.
+\State $r_{\mathsf{out}} \gets \text{randomScalar}()$.
+\State $r_{\mathsf{change}} \gets \text{randomScalar}()$.
+\State $\mathsf{note}_{\mathsf{out}} := (\mathsf{rk}_r, \mathsf{value}_{\mathsf{out}}, r_{\mathsf{out}})$.
+\State $\mathsf{note}_{\mathsf{change}} := (\mathsf{rk}_s, \mathsf{value}_{\mathsf{change}}, r_{\mathsf{change}})$.
+\State $\mathsf{cm}_{\mathsf{in}} \gets \text{Poseidon2}(\mathsf{note}_{\mathsf{in}})$.
+\State $\mathsf{cm}_{\mathsf{change}} \gets \text{Poseidon2}(\mathsf{note}_{\mathsf{change}})$.
+\State $\mathsf{cm}_{\mathsf{out}} \gets \text{Poseidon2}(\mathsf{note}_{\mathsf{out}})$.
+\State $\mathsf{nf}_{\mathsf{note}} \gets \text{Poseidon2}(\mathsf{cm}_{\mathsf{in}}, \mathsf{nk}_s)$.
+\State $\mathsf{nf}_{\mathsf{tx}} := \text{Poseidon2}(\mathsf{nk}, \mathsf{tx.chainId}, \mathsf{tx.from}, \mathsf{tx.nonce})$
+\State $C_{\mathsf{note}_{\mathsf{out}}} \gets \text{EncryptNote}(\mathsf{note}_{\mathsf{out}}, \mathsf{ek}_r, \mathsf{ovk})$
+\State $C_{\mathsf{note}_{\mathsf{change}}} \gets \text{EncryptNote}(\mathsf{note}_{\mathsf{change}}, \mathsf{ek}_s, \mathsf{ovk})$
+\State $\mathsf{gasFee} := (\mathsf{tx.maxPriorityFeePerGas}, \mathsf{tx.maxFeePerGas})$
+\State $\mathsf{public\_data} := (\mathsf{nf}_{\mathsf{note}}, \mathsf{nf}_{\mathsf{tx}}, \mathsf{cm}_{\mathsf{out}}, \mathsf{cm}_{\mathsf{change}}, \mathsf{root}, C_{\mathsf{note}_{\mathsf{out}}}, C_{\mathsf{note}_{\mathsf{change}}}, \mathsf{gasFee})$.
+\State $\mathsf{private\_data} := (\mathsf{path}, \mathsf{vk}, \mathsf{rk}_s, \mathsf{rk}_r, r_{\mathsf{in}}, r_{\mathsf{out}}, r_{\mathsf{change}}, \mathsf{value}_{\mathsf{in}}, \mathsf{value}_{\mathsf{out}})$.
+\State $\mathsf{proof} \gets \text{prove}(\text{TRANSFER\_CIRCUIT}, \mathsf{public\_data}; \mathsf{private\_data})$.
+\State \Return $(\mathsf{public\_data}, \mathsf{proof})$.
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Shielded Transfer Circuit}
+
+Now we describe what the TRANSFER\_CIRCUIT (Algorithm 4, line 18.) checks. Again, we distinguish 3 scenarios according to security assumptions from Section 3. The less trusted the Proxy, the more computation must be verified within the circuit. For better orientation, we reference corresponding lines of Algorithm 4 to some parts of the circuit.
+
+\subsubsection{Proxy with spending authority}
+
+In this scenario, the circuit checks only the integrity of the note commitments, transaction balance, merkle tree path, and nullifier integrity of the input note. The $\mathsf{nk}$ behaves as the spending key.
+
+\begin{enumerate}
+    \item $\mathsf{value}_{\mathsf{change}} = \mathsf{value}_{\mathsf{in}} - \mathsf{value}_{\mathsf{out}}$. (line 3.)
+    \item $\text{checkPath}(\mathsf{root}, \mathsf{path})$
+    \item $\mathsf{cm}_{\mathsf{in}} = \text{Poseidon2}(\mathsf{note}_{\mathsf{in}})$. (line 8.)
+    \item $\mathsf{cm}_{\mathsf{change}} = \text{Poseidon2}(\mathsf{note}_{\mathsf{change}})$. (line 9.)
+    \item $\mathsf{cm}_{\mathsf{out}} = \text{Poseidon2}(\mathsf{note}_{\mathsf{out}})$. (line 10.)
+    \item $\mathsf{nf}_{\mathsf{note}} = \text{Poseidon2}(\mathsf{cm}_{\mathsf{in}}, \mathsf{nk}_s)$ (line 11.)
+\end{enumerate}
+
+\subsubsection{Proxy without spending authority}
+
+In this scenario, the circuit additionally checks that the fields of the shielded transaction correspond to the fields of a signed transparent transaction. This significantly increases the circuit size, since non-native arithmetic is required for secp256k1 signature verification and two Keccak-256 evaluations.
+
+\begin{enumerate}
+    \setcounter{enumi}{6}
+    \item $\mathsf{sig\_hash} = \text{Keccak-256}(\mathsf{serialized\_tx})$
+    \item $\text{verifyECDSAsignature}(\mathsf{sig\_hash}, \mathsf{tx.signature}, \mathsf{pk}_s)$
+    \item $\mathsf{nf}_{\mathsf{tx}} := \text{Poseidon2}(\mathsf{nk}, \mathsf{tx.chainId}, \mathsf{tx.from}, \mathsf{tx.nonce})$. (line 12.)
+    \item $\mathsf{tx.to} = \text{Keccak-256}(\mathsf{pk}_r)[12:]$. (line 1.)
+    \item $\mathsf{value}_{\mathsf{out}} = \mathsf{tx.amount}$. (line 2.)
+    \item $\mathsf{gasFee} = (\mathsf{tx.maxPriorityFeePerGas}, \mathsf{tx.maxFeePerGas})$ (line 15.)
+\end{enumerate}
+
+\subsubsection{Fully verifiable Proxy}
+
+In this scenario, all the remaining computations done by the proxy must be verified. Namely, the note encryption and the verification of the recipient's Receiving Key integrity proof.
+
+\begin{enumerate}
+    \setcounter{enumi}{12}
+    \item $C_{\mathsf{note}_{\mathsf{out}}} = \text{EncryptNote}(\mathsf{note}_{\mathsf{out}}, \mathsf{ek}_r, \mathsf{ovk})$ (line 13.)
+    \item $C_{\mathsf{note}_{\mathsf{change}}} = \text{EncryptNote}(\mathsf{note}_{\mathsf{change}}, \mathsf{ek}_s, \mathsf{ovk})$ (line 14.)
+    \item $\exists \pi : \text{verifyRKintegrity}(\pi, \mathsf{rk}_r)$
+\end{enumerate}
+
+\section{Multi-token Protocol}
+
+Extending the protocol to different ERC-20 tokens is straightforward. Each note is extended with token type field that stores ERC-20 address.
+
+\begin{definition}[Nullmask Note (Multi-token)]
+A Nullmask Note is a tuple $(\mathsf{rk}, \mathsf{value}, \mathsf{token\_type}, r)$ where:
+\begin{itemize}
+    \item $\mathsf{rk}$: is a Receiving Key.
+    \item $\mathsf{value}$: a uint64 representing note value.
+    \item $\mathsf{token\_type} \in \mathbb{F}$: Note token type identifier.
+    \item $r \in \mathbb{F}$: A trapdoor responsible for the hiding property of the commitment.
+\end{itemize}
+\end{definition}
+
+The shielded transfer circuit additionally checks that the token type of the Note on the inputs equals token type of the output and change notes.
+
+\section{Compliance}
+
+To prevent illicit parties from laundering money through the Nullmask privacy pool, every deposit to the Contract must be checked and approved. We employ the same mechanisms as Privacy Pools by 0xbow \cite{BIN+23}: all pools deposit are inspected by chain analysis tools. If a depositing account is associated with illicit activity, then the deposit is rejected and user can only de-shield their funds to deposit address. Additionally, we plan to speed up the approval process for funds originating from well-established centralized exchanges, since CEXs are accountable for rejecting illicit funds and collecting user KYCs.
+
+\section{Related Work}
+
+We compare Nullmask to several well-known privacy services in the Ethereum Ecosystem in terms of user interface and user experience.
+
+\subsection{Tornado Cash}
+
+Tornado Cash uses a web app for deposits and withdrawals. For each deposit, the app generates a note plaintext that users must store securely to be able to withdraw it later.
+
+\subsection{Privacy Pools}
+
+Privacy Pools also uses a web app as the front end. Users must generate a new account backed up by a seed phrase. The seed phrase must be re-entered at every visit to the web app. Privacy Pools allows a single deposit to be withdrawn in multiple transactions to different addresses.
+
+\subsection{Railgun}
+
+Using Railgun requires installation of a special wallet backed up by a new seed. Railgun users can transact privately among each other using a new type of address prefixed with 0zk. Additionally, Railgun has a terminal interface and a web app for 0x to 0zk transfers.
+
+\begin{table}[h]
+\centering
+\caption{Comparison of privacy services in the Ethereum Ecosystem}
+\label{tab:comparison}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & Tornado Cash & Privacy Pools & Railgun & Nullmask \\
+\midrule
+user interface & web app & web app & Railway wallet, terminal & any wallet \\
+required backup & of every note & a new seed & a new seed & none \\
+shielded transfers & \texttimes & \texttimes & \checkmark & \checkmark \\
+shielded addresses & -- & -- & new type (0zk) & standard (0x) \\
+deposit amounts & fixed denom. & fixed minimum & any & any \\
+ERC-20 support & whitelist & whitelist & any & any \\
+built-in compliance & none & exclusion proofs & PPoI & exclusion proofs \\
+deployed & August 2019 & March 2025 & July 2021 & -- \\
+hardware wallet support & \texttimes & \texttimes & \texttimes & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Future Work}
+
+\begin{itemize}
+    \item \textbf{Unified Liquidity:} Using universal zk-bridge like Boundless \cite{Bou25} could allow our protocol not to fragment privacy set among all the Layers where we deploy our smart contract.
+    
+    \item \textbf{Unified nullifying keys infrastructure:} Standardizing our key derivation scheme as an EIP (Ethereum Improvement Proposal) would enable all apps in the EVM ecosystem to use shielded addresses and services without users pre-registrations.
+    
+    \item \textbf{Programmable Privacy:} Leveraging power of recursive zk-SNARKs, we can allow users to deploy smart contracts with custom spending logic (e.g., multisig accounts, keypass recovery), within the Nullmask shielded privacy pool.
+    
+    \item \textbf{Minimizing transaction fees with IVC:} Leveraging Incrementally Verifiable Computation we can postpone the on-chain proof verification till the withdrawal. Therefore the gas cost of the fully shielded transaction drops roughly 14x from $\sim 1{,}400{,}000$ (Railgun) to $\sim 100{,}000$ gas per shielded tx.
+\end{itemize}
+
+\begin{thebibliography}{99}
+
+\bibitem{AG22}
+Aayush Gupta, Adhyyan Sekhsaria, and Nalin Bhardwaj.
+Stealthdrops readme.md.
+\url{https://github.com/stealthdrop/stealthdrop?tab=readme-ov-file#ecdsa-signature-verification}, 2022.
+
+\bibitem{BIN+23}
+Vitalik Buterin, Jacob Illum, Matthias Nadler, Fabian Sch{\"a}r, and Ameen Soleimani.
+Blockchain privacy and regulatory compliance: Towards a practical equilibrium.
+September 2023. Available at SSRN.
+
+\bibitem{Bou25}
+Boundless Network Team.
+Boundless: The future of verifiable compute for every chain.
+\url{https://www.boundless.network/}, 2025.
+
+\bibitem{DPC23}
+Alex Davidson, Gon\c{c}alo Pestana, and Sof\'{\i}a Celi.
+Frodopir: Simple, scalable, single-server private information retrieval.
+\textit{Proceedings on Privacy Enhancing Technologies}, 2023(1):365--383, 2023.
+
+\bibitem{GG22}
+Aayush Gupta and Kobi Gurkan.
+PLUME: An ECDSA nullifier scheme for unique pseudonymity within zero knowledge proofs.
+Cryptology ePrint Archive, Paper 2022/1255, 2022.
+
+\bibitem{HBHW25}
+Daira-Emma Hopwood, Sean Bowe, Taylor Hornby, and Nathan Wilcox.
+Zcash protocol specification.
+Technical report, Electric Coin Company, August 2025. Work in progress.
+
+\bibitem{hou}
+Houdini swap: Swap bitcoin privately or any crypto anonymously.
+\url{https://houdiniswap.com/}. Accessed: 2025-09-24.
+
+\bibitem{ZPSZ23}
+Mingxun Zhou, Andrew Park, Elaine Shi, and Wenting Zheng.
+Piano: Extremely simple, single-server PIR with sublinear server computation.
+Cryptology ePrint Archive, Paper 2023/452, 2023.
+
+\end{thebibliography}
+
+\end{document}
