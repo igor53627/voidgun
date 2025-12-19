@@ -144,16 +144,21 @@
             margin-bottom: 1.5rem;
         }
         
-        .ascii-box {
+        .info-box {
             background: var(--bg);
-            border: 1px dashed var(--border);
+            border-left: 3px solid var(--accent);
             border-radius: 4px;
             padding: 1rem;
             margin-bottom: 1.5rem;
-            font-size: 0.8rem;
+            font-size: 0.9rem;
             color: var(--text-dim);
-            white-space: pre;
-            overflow-x: auto;
+            line-height: 1.5;
+        }
+        
+        .info-box strong {
+            color: var(--text);
+            display: block;
+            margin-bottom: 0.25rem;
         }
         
         .btn {
@@ -228,7 +233,9 @@
             background: var(--bg);
             border-radius: 4px;
             margin-bottom: 1rem;
-            font-size: 0.95rem;
+            font-size: 0.85rem;
+            word-break: break-all;
+            line-height: 1;
         }
         
         .status-dot {
@@ -417,6 +424,45 @@
         .modal-actions .btn {
             flex: 1;
         }
+        
+        /* Focus styles for accessibility */
+        button:focus,
+        a:focus,
+        input:focus {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        
+        .input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(132, 204, 22, 0.2);
+        }
+        
+        /* Demo mode banner */
+        .demo-banner {
+            background: var(--warning);
+            color: var(--bg);
+            text-align: center;
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+        }
+        
+        /* Error message styles */
+        .input-error {
+            color: var(--error);
+            font-size: 0.8rem;
+            margin-top: 0.25rem;
+            min-height: 1.2em;
+        }
+        
+        .input.error {
+            border-color: var(--error);
+        }
     </style>
 </head>
 <body>
@@ -457,16 +503,9 @@
         <h2 class="card-title">Connect Wallet</h2>
         <p class="card-desc">Connect your Ethereum wallet to begin. Your keys will be derived from a signature.</p>
         
-        <div class="ascii-box">
-┌─────────────────────────────────────┐
-│  ╭──────╮                           │
-│  [WALLET]  Your wallet retains      │
-│             full spending authority │
-│                                     │
-│  The proxy cannot steal funds -     │
-│  only wallet-signed transactions    │
-│  authorize spends.                  │
-└─────────────────────────────────────┘
+<div class="info-box">
+            <strong>Your wallet retains full spending authority.</strong>
+            The proxy cannot steal funds - only wallet-signed transactions authorize spends.
         </div>
         
         <button class="btn btn-primary" onclick="connectWallet()">
@@ -557,20 +596,11 @@
         <h2 class="card-title">Derive Privacy Keys</h2>
         <p class="card-desc">Sign a message to derive your Railgun keys. No new seed phrase needed.</p>
         
-        <div class="ascii-box">
-┌─────────────────────────────────────┐
-│  Signature → keccak256 → Entropy    │
-│      ↓                              │
-│  BIP39 Mnemonic (12 words)          │
-│      ↓                              │
-│  BIP32 Baby Jubjub Keys             │
-│      ├── Spending Key (EdDSA)       │
-│      ├── Viewing Key                │
-│      └── Nullifying Key             │
-└─────────────────────────────────────┘
+<div class="info-box">
+            <strong>Key Derivation:</strong> Signature → Entropy → BIP39 Mnemonic → BIP32 Baby Jubjub Keys (Spending, Viewing, Nullifying)
         </div>
         
-        <button class="btn btn-primary" onclick="deriveKeys()">
+        <button class="btn btn-primary" id="btn-derive" onclick="deriveKeys(this)">
             Sign & Derive Keys
         </button>
     </div>
@@ -623,14 +653,15 @@
     </div>
     
     <!-- Shield Modal -->
-    <div class="modal-overlay hidden" id="modal-shield">
+    <div class="modal-overlay hidden" id="modal-shield" role="dialog" aria-modal="true" aria-labelledby="modal-shield-title">
         <div class="modal">
-            <h3 class="modal-title">Shield Funds</h3>
+            <h3 class="modal-title" id="modal-shield-title">Shield Funds</h3>
             <p class="card-desc">Deposit tokens into the Railgun pool. Your balance becomes private.</p>
             
             <div class="input-group">
-                <label class="input-label">Amount</label>
-                <input type="text" class="input" id="shield-amount" placeholder="0.0">
+                <label class="input-label" for="shield-amount">Amount</label>
+                <input type="number" step="0.0001" min="0" class="input" id="shield-amount" placeholder="0.0">
+                <div class="input-error" id="shield-error"></div>
             </div>
             
             <div class="input-group">
@@ -640,74 +671,117 @@
             
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="hideModal('modal-shield')">Cancel</button>
-                <button class="btn btn-primary" onclick="executeShield()">Shield</button>
+                <button class="btn btn-primary" id="btn-shield" onclick="executeShield(this)">Shield</button>
             </div>
         </div>
     </div>
     
     <!-- Transfer Modal -->
-    <div class="modal-overlay hidden" id="modal-transfer">
+    <div class="modal-overlay hidden" id="modal-transfer" role="dialog" aria-modal="true" aria-labelledby="modal-transfer-title">
         <div class="modal">
-            <h3 class="modal-title">Private Transfer</h3>
+            <h3 class="modal-title" id="modal-transfer-title">Private Transfer</h3>
             <p class="card-desc">Send to another 0zk address. Fully private, on-chain.</p>
             
             <div class="input-group">
-                <label class="input-label">Recipient (0zk address)</label>
+                <label class="input-label" for="transfer-to">Recipient (0zk address)</label>
                 <input type="text" class="input" id="transfer-to" placeholder="0zk...">
             </div>
             
             <div class="input-group">
-                <label class="input-label">Amount</label>
-                <input type="text" class="input" id="transfer-amount" placeholder="0.0">
+                <label class="input-label" for="transfer-amount">Amount</label>
+                <input type="number" step="0.0001" min="0" class="input" id="transfer-amount" placeholder="0.0">
+                <div class="input-error" id="transfer-error"></div>
             </div>
             
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="hideModal('modal-transfer')">Cancel</button>
-                <button class="btn btn-primary" onclick="executeTransfer()">Transfer</button>
+                <button class="btn btn-primary" id="btn-transfer" onclick="executeTransfer(this)">Transfer</button>
             </div>
         </div>
     </div>
     
     <!-- Unshield Modal -->
-    <div class="modal-overlay hidden" id="modal-unshield">
+    <div class="modal-overlay hidden" id="modal-unshield" role="dialog" aria-modal="true" aria-labelledby="modal-unshield-title">
         <div class="modal">
-            <h3 class="modal-title">Unshield Funds</h3>
+            <h3 class="modal-title" id="modal-unshield-title">Unshield Funds</h3>
             <p class="card-desc">Withdraw to a public Ethereum address.</p>
             
             <div class="input-group">
-                <label class="input-label">Recipient Address</label>
+                <label class="input-label" for="unshield-to">Recipient Address</label>
                 <input type="text" class="input" id="unshield-to" placeholder="0x...">
             </div>
             
             <div class="input-group">
-                <label class="input-label">Amount</label>
-                <input type="text" class="input" id="unshield-amount" placeholder="0.0">
+                <label class="input-label" for="unshield-amount">Amount</label>
+                <input type="number" step="0.0001" min="0" class="input" id="unshield-amount" placeholder="0.0">
+                <div class="input-error" id="unshield-error"></div>
             </div>
             
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="hideModal('modal-unshield')">Cancel</button>
-                <button class="btn btn-primary" onclick="executeUnshield()">Unshield</button>
+                <button class="btn btn-primary" id="btn-unshield" onclick="executeUnshield(this)">Unshield</button>
             </div>
         </div>
     </div>
     
     <footer>
         <a href="https://github.com/igor53627/voidgun">GitHub</a>
-        <a href="protocol-visualization.html">Docs</a>
+        <a href="./protocol-visualization.html">Docs</a>
         <a href="https://railgun.org">Railgun</a>
     </footer>
     
     <script>
         // State
+        const appState = {
+            stage: 0,
+            wallet: {
+                address: null,
+                isDemo: false
+            },
+            railgun: {
+                keysInitialized: false,
+                balance: 0,
+                notes: []
+            }
+        };
+        
+        // Legacy aliases for compatibility
         let currentStage = 0;
         let connectedAddress = null;
         let keysInitialized = false;
         let balance = 0;
         let notes = [];
         
-        // Mock wallet connection (replace with actual ethers.js or wagmi)
+        function syncState() {
+            currentStage = appState.stage;
+            connectedAddress = appState.wallet.address;
+            keysInitialized = appState.railgun.keysInitialized;
+            balance = appState.railgun.balance;
+            notes = appState.railgun.notes;
+        }
+        
+        function showDemoBanner() {
+            let banner = document.getElementById('demo-banner');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'demo-banner';
+                banner.className = 'demo-banner';
+                banner.textContent = '[DEMO MODE] No wallet detected - simulated transactions only';
+                document.body.insertBefore(banner, document.body.firstChild);
+            }
+        }
+        
+        function hideDemoBanner() {
+            const banner = document.getElementById('demo-banner');
+            if (banner) banner.remove();
+        }
+        
+        // Wallet connection
         async function connectWallet() {
-            // Simulate wallet connection
+            const btn = document.querySelector('#stage-connect .btn-primary');
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+            
             await simulateDelay(800);
             
             if (typeof window.ethereum !== 'undefined') {
@@ -715,22 +789,39 @@
                     const accounts = await window.ethereum.request({ 
                         method: 'eth_requestAccounts' 
                     });
-                    connectedAddress = accounts[0];
+                    if (accounts && accounts[0]) {
+                        appState.wallet.address = accounts[0];
+                        appState.wallet.isDemo = false;
+                        hideDemoBanner();
+                    } else {
+                        throw new Error('No account returned');
+                    }
                 } catch (err) {
-                    connectedAddress = generateMockAddress();
+                    appState.wallet.address = generateMockAddress();
+                    appState.wallet.isDemo = true;
+                    showDemoBanner();
                 }
             } else {
-                connectedAddress = generateMockAddress();
+                appState.wallet.address = generateMockAddress();
+                appState.wallet.isDemo = true;
+                showDemoBanner();
             }
             
+            syncState();
+            btn.disabled = false;
+            btn.textContent = 'Connect Wallet';
             updateAddressDisplays();
             showStage(1);
         }
         
         async function addNetwork() {
+            const btn = document.querySelector('#stage-network .btn-primary');
+            btn.disabled = true;
+            btn.textContent = 'Adding...';
+            
             await simulateDelay(600);
             
-            if (typeof window.ethereum !== 'undefined') {
+            if (typeof window.ethereum !== 'undefined' && !appState.wallet.isDemo) {
                 try {
                     await window.ethereum.request({
                         method: 'wallet_addEthereumChain',
@@ -750,6 +841,8 @@
                 }
             }
             
+            btn.disabled = false;
+            btn.textContent = 'Add Network';
             showStage(2);
         }
         
@@ -757,37 +850,56 @@
             showStage(2);
         }
         
-        async function deriveKeys() {
-            const btn = event.target;
+        async function deriveKeys(btn) {
             btn.disabled = true;
             btn.textContent = 'Signing...';
             
             await simulateDelay(500);
             
-            if (typeof window.ethereum !== 'undefined') {
+            if (typeof window.ethereum !== 'undefined' && !appState.wallet.isDemo) {
                 try {
                     const message = 'Authorize Railgun privacy pool access via Voidgun proxy.\n\nThis signature will be used to derive your Railgun wallet keys deterministically.';
                     await window.ethereum.request({
                         method: 'personal_sign',
-                        params: [message, connectedAddress]
+                        params: [message, appState.wallet.address]
                     });
                 } catch (err) {
                     console.log('Signature rejected, using demo mode');
+                    appState.wallet.isDemo = true;
+                    showDemoBanner();
                 }
             }
             
             btn.textContent = 'Deriving Keys...';
             await simulateDelay(1000);
             
-            keysInitialized = true;
-            balance = 0;
-            notes = [];
+            appState.railgun.keysInitialized = true;
+            appState.railgun.balance = 0;
+            appState.railgun.notes = [];
+            syncState();
             
+            btn.disabled = false;
+            btn.textContent = 'Sign & Derive Keys';
             showStage(3);
         }
         
+        function updateProgress(stage) {
+            document.querySelectorAll('.step').forEach((step, idx) => {
+                step.classList.remove('active', 'completed');
+                step.removeAttribute('aria-current');
+                if (idx < stage) {
+                    step.classList.add('completed');
+                }
+                if (idx === stage) {
+                    step.classList.add('active');
+                    step.setAttribute('aria-current', 'step');
+                }
+            });
+        }
+        
         function showStage(stage) {
-            currentStage = stage;
+            appState.stage = stage;
+            syncState();
             
             document.getElementById('stage-connect').classList.add('hidden');
             document.getElementById('stage-network').classList.add('hidden');
@@ -797,118 +909,234 @@
             const stageIds = ['stage-connect', 'stage-network', 'stage-keys', 'stage-ready'];
             document.getElementById(stageIds[stage]).classList.remove('hidden');
             
+            updateProgress(stage);
+            
             if (stage === 3) {
                 updateDashboard();
             }
         }
         
         function updateAddressDisplays() {
-            const shortAddr = connectedAddress 
-                ? connectedAddress.slice(0, 6) + '...' + connectedAddress.slice(-4)
-                : '0x0000...0000';
+            const addr = appState.wallet.address || '0x0000000000000000000000000000000000000000';
             
-            document.getElementById('connected-address').textContent = shortAddr;
-            document.getElementById('connected-address-2').textContent = shortAddr;
-            document.getElementById('connected-address-3').textContent = shortAddr;
+            document.getElementById('connected-address').textContent = addr;
+            document.getElementById('connected-address-2').textContent = addr;
+            document.getElementById('connected-address-3').textContent = addr;
         }
         
         function updateDashboard() {
-            document.getElementById('balance-value').textContent = balance.toFixed(4);
+            document.getElementById('balance-value').textContent = appState.railgun.balance.toFixed(4);
             
             const noteList = document.getElementById('note-list');
             noteList.innerHTML = '';
             
-            if (notes.length === 0) {
-                noteList.innerHTML = `
-                    <div class="note-item" style="justify-content: center; color: var(--text-dim);">
-                        No shielded notes yet
-                    </div>
-                `;
+            if (appState.railgun.notes.length === 0) {
+                const emptyItem = document.createElement('div');
+                emptyItem.className = 'note-item';
+                emptyItem.style.justifyContent = 'center';
+                emptyItem.style.color = 'var(--text-dim)';
+                emptyItem.textContent = 'No shielded notes yet';
+                noteList.appendChild(emptyItem);
             } else {
-                notes.forEach((note, i) => {
-                    noteList.innerHTML += `
-                        <div class="note-item">
-                            <div class="note-token">
-                                <div class="note-icon">${note.token === 'ETH' ? 'E' : '$'}</div>
-                                <span>${note.token}</span>
-                            </div>
-                            <span class="note-amount">${note.value.toFixed(4)}</span>
-                        </div>
-                    `;
+                appState.railgun.notes.forEach((note) => {
+                    const item = document.createElement('div');
+                    item.className = 'note-item';
+                    
+                    const tokenDiv = document.createElement('div');
+                    tokenDiv.className = 'note-token';
+                    
+                    const icon = document.createElement('div');
+                    icon.className = 'note-icon';
+                    icon.textContent = note.token === 'ETH' ? 'E' : '$';
+                    
+                    const tokenName = document.createElement('span');
+                    tokenName.textContent = note.token;
+                    
+                    tokenDiv.appendChild(icon);
+                    tokenDiv.appendChild(tokenName);
+                    
+                    const amount = document.createElement('span');
+                    amount.className = 'note-amount';
+                    amount.textContent = note.value.toFixed(4);
+                    
+                    item.appendChild(tokenDiv);
+                    item.appendChild(amount);
+                    noteList.appendChild(item);
                 });
             }
+            
+            // Disable transfer/unshield if no balance
+            const hasBalance = appState.railgun.balance > 0;
+            document.querySelector('.actions .btn-secondary').disabled = !hasBalance;
+            document.querySelector('.actions + .btn-secondary').disabled = !hasBalance;
+        }
+        
+        function showModal(id) {
+            const modal = document.getElementById(id);
+            modal.classList.remove('hidden');
+            const firstInput = modal.querySelector('input:not([disabled])');
+            if (firstInput) firstInput.focus();
         }
         
         function showShield() {
-            document.getElementById('modal-shield').classList.remove('hidden');
+            clearError('shield-error');
+            showModal('modal-shield');
         }
         
         function showTransfer() {
-            document.getElementById('modal-transfer').classList.remove('hidden');
+            clearError('transfer-error');
+            showModal('modal-transfer');
         }
         
         function showUnshield() {
-            document.getElementById('modal-unshield').classList.remove('hidden');
+            clearError('unshield-error');
+            showModal('modal-unshield');
         }
         
         function hideModal(id) {
             document.getElementById(id).classList.add('hidden');
         }
         
-        async function executeShield() {
-            const amount = parseFloat(document.getElementById('shield-amount').value) || 0;
-            if (amount <= 0) return;
+        function hideAllModals() {
+            document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(overlay => {
+                overlay.classList.add('hidden');
+            });
+        }
+        
+        function showError(elementId, message) {
+            const el = document.getElementById(elementId);
+            if (el) el.textContent = message;
+        }
+        
+        function clearError(elementId) {
+            const el = document.getElementById(elementId);
+            if (el) el.textContent = '';
+        }
+        
+        // Fixed note spending algorithm
+        function spendFromNotes(amount) {
+            let remaining = amount;
+            const newNotes = [];
+            
+            for (const n of appState.railgun.notes) {
+                if (remaining <= 0) {
+                    newNotes.push({ ...n });
+                    continue;
+                }
+                if (n.value <= remaining) {
+                    remaining -= n.value;
+                } else {
+                    newNotes.push({ ...n, value: n.value - remaining });
+                    remaining = 0;
+                }
+            }
+            appState.railgun.notes = newNotes;
+            syncState();
+        }
+        
+        async function executeShield(btn) {
+            const amountInput = document.getElementById('shield-amount');
+            const amount = parseFloat(amountInput.value) || 0;
+            
+            clearError('shield-error');
+            
+            if (amount <= 0) {
+                showError('shield-error', 'Amount must be greater than 0');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Shielding...';
             
             await simulateDelay(1500);
             
-            balance += amount;
-            notes.push({ token: 'ETH', value: amount });
+            appState.railgun.balance += amount;
+            appState.railgun.notes.push({ token: 'ETH', value: amount });
+            syncState();
             
+            btn.disabled = false;
+            btn.textContent = 'Shield';
             hideModal('modal-shield');
             updateDashboard();
-            document.getElementById('shield-amount').value = '';
+            amountInput.value = '';
         }
         
-        async function executeTransfer() {
-            const to = document.getElementById('transfer-to').value;
-            const amount = parseFloat(document.getElementById('transfer-amount').value) || 0;
+        async function executeTransfer(btn) {
+            const toInput = document.getElementById('transfer-to');
+            const amountInput = document.getElementById('transfer-amount');
+            const to = toInput.value.trim();
+            const amount = parseFloat(amountInput.value) || 0;
             
-            if (!to || amount <= 0 || amount > balance) return;
+            clearError('transfer-error');
+            
+            if (!to) {
+                showError('transfer-error', 'Enter a recipient address');
+                return;
+            }
+            if (amount <= 0) {
+                showError('transfer-error', 'Amount must be greater than 0');
+                return;
+            }
+            if (amount > appState.railgun.balance) {
+                showError('transfer-error', 'Insufficient shielded balance');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Transferring...';
             
             await simulateDelay(2000);
             
-            balance -= amount;
-            notes = notes.filter(n => {
-                if (n.value <= amount) return false;
-                n.value -= amount;
-                return true;
-            });
+            appState.railgun.balance -= amount;
+            spendFromNotes(amount);
             
+            btn.disabled = false;
+            btn.textContent = 'Transfer';
             hideModal('modal-transfer');
             updateDashboard();
-            document.getElementById('transfer-to').value = '';
-            document.getElementById('transfer-amount').value = '';
+            toInput.value = '';
+            amountInput.value = '';
         }
         
-        async function executeUnshield() {
-            const to = document.getElementById('unshield-to').value;
-            const amount = parseFloat(document.getElementById('unshield-amount').value) || 0;
+        async function executeUnshield(btn) {
+            const toInput = document.getElementById('unshield-to');
+            const amountInput = document.getElementById('unshield-amount');
+            const to = toInput.value.trim();
+            const amount = parseFloat(amountInput.value) || 0;
             
-            if (!to || amount <= 0 || amount > balance) return;
+            clearError('unshield-error');
+            
+            if (!to) {
+                showError('unshield-error', 'Enter a recipient address');
+                return;
+            }
+            if (!to.startsWith('0x') || to.length !== 42) {
+                showError('unshield-error', 'Invalid Ethereum address');
+                return;
+            }
+            if (amount <= 0) {
+                showError('unshield-error', 'Amount must be greater than 0');
+                return;
+            }
+            if (amount > appState.railgun.balance) {
+                showError('unshield-error', 'Insufficient shielded balance');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Unshielding...';
             
             await simulateDelay(2000);
             
-            balance -= amount;
-            notes = notes.filter(n => {
-                if (n.value <= amount) return false;
-                n.value -= amount;
-                return true;
-            });
+            appState.railgun.balance -= amount;
+            spendFromNotes(amount);
             
+            btn.disabled = false;
+            btn.textContent = 'Unshield';
             hideModal('modal-unshield');
             updateDashboard();
-            document.getElementById('unshield-to').value = '';
-            document.getElementById('unshield-amount').value = '';
+            toInput.value = '';
+            amountInput.value = '';
         }
         
         // Utilities
@@ -933,6 +1161,33 @@
                 }
             });
         });
+        
+        // Close modals on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hideAllModals();
+            }
+        });
+        
+        // Handle wallet account/chain changes
+        if (typeof window.ethereum !== 'undefined') {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                if (!accounts || !accounts.length) {
+                    appState.wallet.address = null;
+                    appState.wallet.isDemo = true;
+                    showDemoBanner();
+                    showStage(0);
+                } else {
+                    appState.wallet.address = accounts[0];
+                    syncState();
+                    updateAddressDisplays();
+                }
+            });
+            
+            window.ethereum.on('chainChanged', () => {
+                window.location.reload();
+            });
+        }
     </script>
 </body>
 </html>

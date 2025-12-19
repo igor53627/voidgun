@@ -388,27 +388,27 @@
             
             <div class="flow-diagram">
                 <div class="flow-box" id="wallet-box">
-                    <div class="icon">👛</div>
+                    <div class="icon">[W]</div>
                     <div class="label">Wallet</div>
                 </div>
-                <div class="flow-arrow">→</div>
+                <div class="flow-arrow">-></div>
                 <div class="flow-box" id="signature-box">
-                    <div class="icon">✍️</div>
+                    <div class="icon">[S]</div>
                     <div class="label">Sign Message</div>
                 </div>
-                <div class="flow-arrow">→</div>
+                <div class="flow-arrow">-></div>
                 <div class="flow-box" id="keys-box">
-                    <div class="icon">🔑</div>
+                    <div class="icon">[K]</div>
                     <div class="label">Derive Keys</div>
                 </div>
-                <div class="flow-arrow">→</div>
+                <div class="flow-arrow">-></div>
                 <div class="flow-box" id="proof-box">
-                    <div class="icon">🔒</div>
+                    <div class="icon">[P]</div>
                     <div class="label">ZK Proofs</div>
                 </div>
-                <div class="flow-arrow">→</div>
+                <div class="flow-arrow">-></div>
                 <div class="flow-box" id="railgun-box">
-                    <div class="icon">🚂</div>
+                    <div class="icon">[R]</div>
                     <div class="label">Railgun Pool</div>
                 </div>
             </div>
@@ -480,12 +480,12 @@
                 </div>
                 
                 <div class="demo-controls">
-                    <button onclick="runKeyDerivation()">Run Key Derivation</button>
+                    <button onclick="nextKeyStep()">Next Step</button>
                     <button class="secondary" onclick="resetKeyDerivation()">Reset</button>
                 </div>
                 
                 <div class="output-box" id="key-output">
-                    <pre>Click "Run Key Derivation" to see the flow...</pre>
+                    <pre>Click "Next Step" to walk through the derivation flow...</pre>
                 </div>
             </div>
             
@@ -508,58 +508,51 @@
             <h2>3. Note Structure</h2>
             <p>Shielded balances are stored as encrypted Notes in a Merkle tree. Each note commits to a value without revealing it.</p>
             
-            <div class="note-visual">
-                <div class="note-card">
-                    <h4>Note Fields</h4>
-                    <div class="key-value">
-                        <span class="key">npk</span>
-                        <span class="value">Poseidon(nk, leafIndex)</span>
-                    </div>
-                    <div class="key-value">
-                        <span class="key">token</span>
-                        <span class="value">Token address</span>
-                    </div>
-                    <div class="key-value">
-                        <span class="key">value</span>
-                        <span class="value">Amount (hidden)</span>
-                    </div>
-                    <div class="key-value">
-                        <span class="key">random</span>
-                        <span class="value">Blinding factor</span>
-                    </div>
-                </div>
-                
-                <div class="note-card">
-                    <h4>Commitment</h4>
-                    <div class="key-value">
-                        <span class="key">hash</span>
-                        <span class="value">Poseidon(npk, token, value, r)</span>
-                    </div>
-                    <div class="key-value">
-                        <span class="key">size</span>
-                        <span class="value">32 bytes (BN254 scalar)</span>
-                    </div>
-                    <div class="key-value">
-                        <span class="key">stored</span>
-                        <span class="value">In Merkle tree leaf</span>
-                    </div>
-                </div>
-                
-                <div class="note-card">
-                    <h4>Nullifier</h4>
-                    <div class="key-value">
-                        <span class="key">formula</span>
-                        <span class="value">Poseidon(nk, leafIndex)</span>
-                    </div>
-                    <div class="key-value">
-                        <span class="key">purpose</span>
-                        <span class="value">Prevent double-spend</span>
-                    </div>
-                    <div class="key-value">
-                        <span class="key">revealed</span>
-                        <span class="value">On spend (unlinkable)</span>
-                    </div>
-                </div>
+            <div class="code-block" style="font-size: 0.8rem; line-height: 1.4;">
+<pre>
+                         NOTE (Private Data)
+    ┌─────────────────────────────────────────────────────┐
+    │                                                     │
+    │   npk ────────┐      Note Public Key                │
+    │               │      = Poseidon(nullifyingKey,      │
+    │               │                 leafIndex)          │
+    │               │                                     │
+    │   token ──────┼──┐   ERC20 contract address         │
+    │               │  │                                  │
+    │   value ──────┼──┼─┐ Amount (e.g. 10 ETH)           │
+    │               │  │ │                                │
+    │   random ─────┼──┼─┼─┐ Random blinding factor       │
+    │               │  │ │ │                              │
+    └───────────────┼──┼─┼─┼──────────────────────────────┘
+                    │  │ │ │
+                    v  v v v
+              ┌─────────────────┐
+              │    Poseidon     │  Hash function
+              │  (npk, token,   │
+              │   value, rand)  │
+              └────────┬────────┘
+                       │
+                       v
+    ┌─────────────────────────────────────────────────────┐
+    │              COMMITMENT (On-Chain)                  │
+    │                                                     │
+    │   32-byte hash stored in Merkle tree leaf           │
+    │   Hides all note details from observers             │
+    │                                                     │
+    └─────────────────────────────────────────────────────┘
+
+
+    NULLIFIER (Revealed on Spend)
+    ┌─────────────────────────────────────────────────────┐
+    │                                                     │
+    │   = Poseidon(nullifyingKey, leafIndex)              │
+    │                                                     │
+    │   - Unique per note (prevents double-spend)         │
+    │   - Cannot be linked back to commitment             │
+    │   - Published on-chain when note is consumed        │
+    │                                                     │
+    └─────────────────────────────────────────────────────┘
+</pre>
             </div>
         </div>
         
@@ -617,7 +610,7 @@
                 </tr>
                 <tr>
                     <td>Capacity</td>
-                    <td>2^16 = 65,536 commitments per tree</td>
+                    <td>65,536 commitments per tree (new tree created when full)</td>
                 </tr>
                 <tr>
                     <td>Hash</td>
@@ -725,22 +718,22 @@
             
             <div class="flow-diagram">
                 <div class="flow-box">
-                    <div class="icon">📝</div>
+                    <div class="icon">[1]</div>
                     <div class="label">Witness</div>
                 </div>
-                <div class="flow-arrow">→</div>
+                <div class="flow-arrow">-></div>
                 <div class="flow-box">
-                    <div class="icon">⚙️</div>
+                    <div class="icon">[2]</div>
                     <div class="label">WASM</div>
                 </div>
-                <div class="flow-arrow">→</div>
+                <div class="flow-arrow">-></div>
                 <div class="flow-box">
-                    <div class="icon">🔐</div>
+                    <div class="icon">[3]</div>
                     <div class="label">ZKEY</div>
                 </div>
-                <div class="flow-arrow">→</div>
+                <div class="flow-arrow">-></div>
                 <div class="flow-box">
-                    <div class="icon">✅</div>
+                    <div class="icon">[+]</div>
                     <div class="label">Proof</div>
                 </div>
             </div>
@@ -799,50 +792,62 @@
     </div>
     
     <script>
-        // Key derivation demo
-        let derivationStep = 0;
+        // Key derivation demo - step by step
+        let currentKeyStep = -1;
+        const keyStepIds = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'];
+        const keyStepOutputs = [
+            'Step 1: Signing domain message...\n\nMessage: "Authorize Railgun privacy pool access via Voidgun proxy."\n\nYour wallet will prompt you to sign this message.',
+            'Step 2: Hashing signature...\n\nkeccak256(signature) = 0x7f8a3b9c2d1e4f50...\n\nThe signature is hashed to get deterministic bytes.',
+            'Step 3: Extracting entropy...\n\nentropy = keccak256(sig)[0:16] = 0x7f8a3b2c1d4e5f60...\n\nFirst 16 bytes become the seed entropy.',
+            'Step 4: Generating mnemonic...\n\nBIP39 12-word mnemonic:\n"abandon ability able about above absent\n absorb abstract absurd abuse access accident"\n\nThis mnemonic is derived deterministically.',
+            'Step 5: BIP32 derivation on Baby Jubjub curve...\n\nm/44\'/1984\'/0\'/0\' -> Spending Key (EdDSA)\nm/420\'/1984\'/0\'/0\' -> Viewing Key\n\nKeys are derived on the Baby Jubjub curve.',
+            'Step 6: Keys ready!\n\nSpending Key (EdDSA): 0x1a2b3c4d5e6f7a8b...\nViewing Key:         0x5e6f7a8b9c0d1e2f...\nNullifying Key:      0x9c0d1e2f3a4b5c6d...\n\n[OK] Wallet initialized successfully'
+        ];
         
-        async function runKeyDerivation() {
-            const steps = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'];
+        function nextKeyStep() {
             const progress = document.getElementById('derivation-progress');
             const output = document.getElementById('key-output').querySelector('pre');
             
-            const outputs = [
-                'Step 1: Signing domain message...\n\nMessage: "Authorize Railgun privacy pool access via Voidgun proxy."',
-                'Step 2: Hashing signature...\n\nkeccak256(signature) = 0x7f8a3b...',
-                'Step 3: Extracting entropy...\n\nentropy = keccak256(sig)[0:16] = 0x7f8a3b2c1d4e5f60...',
-                'Step 4: Generating mnemonic...\n\n"abandon ability able about above absent absorb abstract absurd abuse access accident"',
-                'Step 5: BIP32 derivation on Baby Jubjub...\n\nm/44\'/1984\'/0\'/0\' -> Spending Key\nm/420\'/1984\'/0\'/0\' -> Viewing Key',
-                'Step 6: Keys ready!\n\nSpending Key (EdDSA): 0x1a2b3c4d...\nViewing Key: 0x5e6f7a8b...\nNullifying Key: 0x9c0d1e2f...\n\n[OK] Wallet initialized'
-            ];
-            
-            for (let i = 0; i < steps.length; i++) {
-                await new Promise(r => setTimeout(r, 600));
-                
-                steps.forEach((s, idx) => {
-                    const el = document.getElementById(s);
-                    el.classList.remove('active', 'completed');
-                    if (idx < i) el.classList.add('completed');
-                    if (idx === i) el.classList.add('active');
-                });
-                
-                progress.style.width = ((i + 1) / steps.length * 100) + '%';
-                output.textContent = outputs[i];
+            if (currentKeyStep >= keyStepIds.length - 1) {
+                // Already at the end, mark final as completed
+                document.getElementById(keyStepIds[currentKeyStep]).classList.remove('active');
+                document.getElementById(keyStepIds[currentKeyStep]).classList.add('completed');
+                return;
             }
             
-            await new Promise(r => setTimeout(r, 300));
-            document.getElementById('step6').classList.remove('active');
-            document.getElementById('step6').classList.add('completed');
+            currentKeyStep++;
+            
+            // Update step indicators
+            keyStepIds.forEach((s, idx) => {
+                const el = document.getElementById(s);
+                el.classList.remove('active', 'completed');
+                if (idx < currentKeyStep) el.classList.add('completed');
+                if (idx === currentKeyStep) el.classList.add('active');
+            });
+            
+            // Update progress bar
+            progress.style.width = ((currentKeyStep + 1) / keyStepIds.length * 100) + '%';
+            
+            // Update output
+            output.textContent = keyStepOutputs[currentKeyStep];
+            
+            // Mark final step as completed when we reach it
+            if (currentKeyStep === keyStepIds.length - 1) {
+                setTimeout(() => {
+                    document.getElementById(keyStepIds[currentKeyStep]).classList.remove('active');
+                    document.getElementById(keyStepIds[currentKeyStep]).classList.add('completed');
+                }, 500);
+            }
         }
         
         function resetKeyDerivation() {
-            const steps = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'];
-            steps.forEach(s => {
+            currentKeyStep = -1;
+            keyStepIds.forEach(s => {
                 document.getElementById(s).classList.remove('active', 'completed');
             });
             document.getElementById('derivation-progress').style.width = '0%';
             document.getElementById('key-output').querySelector('pre').textContent = 
-                'Click "Run Key Derivation" to see the flow...';
+                'Click "Next Step" to walk through the derivation flow...';
         }
         
         // Merkle tree demo
