@@ -490,9 +490,9 @@ async fn test_local_merkle_root_in_history() {
                     if pos > tree_result.leaf_count as usize {
                         break;
                     }
-                    let mut partial_tree = railgun_lane::NoteMerkleTree::new(16);
+                    let mut partial_tree = railgun_lane::NoteMerkleTree::new(16).unwrap();
                     for i in 0..pos {
-                        partial_tree.insert(tree_result.tree.leaves[i]);
+                        partial_tree.insert(tree_result.tree.leaves[i]).unwrap();
                     }
                     let partial_root = partial_tree.root();
                     let partial_bytes: [u8; 32] = {
@@ -546,7 +546,7 @@ async fn test_proof_solidity_format() {
     let mut rng = rand::thread_rng();
 
     // Create test data
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
     let input_note = RailgunNote::new(
         wallet.master_public_key,
         1_000_000_000_000_000_000u128,
@@ -554,7 +554,7 @@ async fn test_proof_solidity_format() {
         Field::rand(&mut rng),
     );
 
-    let leaf_idx = tree.insert(input_note.commitment());
+    let leaf_idx = tree.insert(input_note.commitment()).unwrap();
     let merkle_proof = tree.proof(leaf_idx);
     let merkle_root = tree.root();
 
@@ -1133,7 +1133,7 @@ async fn run_e2e_shield_and_verify(rpc_url: &str) {
     // Build merkle tree with our commitment at the correct position
     // For a full sync, we'd fetch all historical events, but on a fresh Tenderly fork
     // with no prior activity, we can build a tree with just our commitment
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // If there are prior commitments, we'd need to sync them first
     // For this test on Tenderly, we assume we're the first shield (leaf_idx should be 0 on fresh fork)
@@ -1324,13 +1324,13 @@ async fn run_e2e_shield_and_verify(rpc_url: &str) {
         // Pad with zeros if needed (shouldn't happen with proper sync)
         while tree.leaves.len() < leaf_idx as usize {
             println!("  Padding with zero at position {}", tree.leaves.len());
-            tree.insert(Field::from(0u64));
+            tree.insert(Field::from(0u64)).expect("tree insert failed");
         }
         println!(
             "  Inserting our commitment at position {}",
             tree.leaves.len()
         );
-        tree.insert(onchain_commitment_field);
+        tree.insert(onchain_commitment_field).expect("tree insert failed");
         println!("  Tree leaves after insert: {}", tree.leaves.len());
     } else {
         println!(

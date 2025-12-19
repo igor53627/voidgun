@@ -25,6 +25,9 @@ pub enum EventLoaderError {
 
     #[error("ABI decode error: {0}")]
     AbiDecode(String),
+
+    #[error("Merkle tree error: {0}")]
+    MerkleTree(#[from] crate::notes::NoteError),
 }
 
 /// Raw event log from JSON dump
@@ -329,7 +332,7 @@ pub fn build_merkle_tree_from_files_with_info(
     all_commitments.sort_by_key(|(pos, _, _)| *pos);
 
     // Build tree using batch insert for speed
-    let mut tree = NoteMerkleTree::new(tree_depth);
+    let mut tree = NoteMerkleTree::new(tree_depth)?;
 
     // First pass: collect all leaves in order, filling gaps with ZERO_VALUE
     // (gaps should not occur in a properly synced tree - they indicate missing event data)
@@ -369,9 +372,15 @@ pub fn build_merkle_tree_from_files_with_info(
 ///
 /// Inserts new commitments at the correct positions, filling gaps if needed.
 /// This uses incremental insert() which updates the path correctly.
-pub fn append_commitments_to_tree(tree: &mut NoteMerkleTree, commitments: &[(u64, Field)]) {
+///
+/// # Errors
+/// Returns `EventLoaderError::MerkleTree` if the tree is full.
+pub fn append_commitments_to_tree(
+    tree: &mut NoteMerkleTree,
+    commitments: &[(u64, Field)],
+) -> Result<(), EventLoaderError> {
     if commitments.is_empty() {
-        return;
+        return Ok(());
     }
 
     let mut sorted: Vec<_> = commitments.to_vec();
@@ -386,16 +395,18 @@ pub fn append_commitments_to_tree(tree: &mut NoteMerkleTree, commitments: &[(u64
                 "Gap in commitments at position {} (expected), filling with ZERO_VALUE",
                 current_leaf_count
             );
-            tree.insert(*crate::notes::ZERO_VALUE);
+            tree.insert(*crate::notes::ZERO_VALUE)?;
             current_leaf_count += 1;
         }
 
         if pos == current_leaf_count {
-            tree.insert(commitment);
+            tree.insert(commitment)?;
             current_leaf_count += 1;
         }
         // If pos < current_leaf_count, the commitment is already in the tree (duplicate)
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -668,7 +679,7 @@ fn test_merkle_tree_simple() {
     use ark_ff::{BigInteger, PrimeField};
 
     // Build a tree with just 2 leaves and verify the root
-    let mut tree = NoteMerkleTree::new(4); // Small tree for testing
+    let mut tree = NoteMerkleTree::new(4).unwrap();
 
     // Use known commitments from our verified test cases
     let commitment1_bytes =
@@ -679,8 +690,8 @@ fn test_merkle_tree_simple() {
         hex::decode("06b98a6ff3ee0706826a861f78cac6b68462c8b167710188e75fd4e2413747dc").unwrap();
     let commitment2 = Field::from_be_bytes_mod_order(&commitment2_bytes);
 
-    tree.insert(commitment1);
-    tree.insert(commitment2);
+    tree.insert(commitment1).unwrap();
+    tree.insert(commitment2).unwrap();
 
     let root = tree.root();
     let root_hex = format!("0x{}", hex::encode(root.into_bigint().to_bytes_be()));
@@ -730,9 +741,9 @@ fn test_tree2_initial_root() {
     let c1 = Field::from_be_bytes_mod_order(&c1_bytes);
 
     // Build tree with depth 16 (Railgun standard)
-    let mut tree = NoteMerkleTree::new(16);
-    tree.insert(c0);
-    tree.insert(c1);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
+    tree.insert(c0).unwrap();
+    tree.insert(c1).unwrap();
 
     let root = tree.root();
     let root_hex = format!("0x{}", hex::encode(root.into_bigint().to_bytes_be()));

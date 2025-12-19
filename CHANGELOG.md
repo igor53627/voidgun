@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **VULN-001/002**: `NoteMerkleTree::new()` now validates depth <= 16 and returns `Result`
+- **VULN-001/002**: `NoteMerkleTree::insert()` now checks capacity and returns `Result` to prevent panics
+- **VULN-003**: Added `validate_transact_witness()` to validate Merkle proof shapes before circuit invocation
+- **VULN-004**: Witness padding now only allows diff of 1; larger mismatches return explicit errors
+
 ### Changed
 - Updated documentation and added protocol visualization
+- `NoteMerkleTree::new()` and `insert()` now return `Result` types (breaking API change)
 
 ## [0.2.0] - 2024-12-19
 

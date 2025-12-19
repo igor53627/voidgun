@@ -27,6 +27,9 @@ pub enum LaneError {
     #[error("Insufficient balance")]
     InsufficientBalance,
 
+    #[error("Merkle tree error: {0}")]
+    MerkleTreeError(String),
+
     #[error("Note not found")]
     NoteNotFound,
 
@@ -188,7 +191,7 @@ impl RailgunLane {
             rpc_url: None,
             notes: Vec::new(),
             spent_nullifiers: std::collections::HashSet::new(),
-            merkle_tree: crate::notes::NoteMerkleTree::new(16), // Railgun uses depth 16
+            merkle_tree: crate::notes::NoteMerkleTree::new(16).expect("depth 16 is valid"),
             last_synced_block: 0,
         }
     }
@@ -721,7 +724,8 @@ impl RailgunLane {
                 match event {
                     RailgunEvent::Shield(shield_event) => {
                         for (i, commitment) in shield_event.commitments.iter().enumerate() {
-                            let leaf_index = self.merkle_tree.insert(*commitment);
+                            let leaf_index = self.merkle_tree.insert(*commitment)
+                                .map_err(|e| LaneError::MerkleTreeError(e.to_string()))?;
 
                             if let (Some(ciphertext), Some(preimage)) = (
                                 shield_event.ciphertexts.get(i),
@@ -761,7 +765,8 @@ impl RailgunLane {
                         for (i, commitment) in
                             transact_event.commitment_hashes.iter().enumerate()
                         {
-                            let leaf_index = self.merkle_tree.insert(*commitment);
+                            let leaf_index = self.merkle_tree.insert(*commitment)
+                                .map_err(|e| LaneError::MerkleTreeError(e.to_string()))?;
 
                             if let Some(ciphertext_bytes) = transact_event.ciphertexts.get(i) {
                                 if let Ok(encrypted_note) =

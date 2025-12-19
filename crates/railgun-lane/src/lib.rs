@@ -61,7 +61,7 @@ pub use event_loader::{
 };
 pub use keys::{EddsaSignature, RailgunWallet, SpendingKey, ViewingKey};
 pub use lane::{PoolLane, PoolType, RailgunLane, TransferRequest, TransferResult};
-pub use notes::{EncryptedNote, NoteMerkleTree, RailgunNote, ShieldCiphertext};
+pub use notes::{EncryptedNote, NoteMerkleTree, NoteError, RailgunNote, ShieldCiphertext, MAX_MERKLE_DEPTH};
 pub use prover::{CommitmentCiphertextData, RailgunProof, RailgunProver, TransactWitness};
 pub use rpc::{EventSyncer, RailgunEvent, RailgunRpcClient};
 

@@ -108,7 +108,7 @@ async fn test_prove_transact_1x1() {
     let mut rng = rand::thread_rng();
 
     // Create a simple merkle tree with one note
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Create input note
     let input_note = RailgunNote::new(
@@ -200,7 +200,7 @@ async fn test_prove_transact_1x2() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Input: 1 note of 2 ETH
     let input_note = RailgunNote::new(
@@ -276,7 +276,7 @@ async fn test_prove_transact_2x1() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Input: 2 notes of 0.5 ETH each (merge)
     let input_note1 = RailgunNote::new(
@@ -354,7 +354,7 @@ async fn test_prove_transact_2x2() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Input: 2 notes
     let input_note1 = RailgunNote::new(
@@ -445,7 +445,7 @@ async fn test_proof_verification() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     let input_note = RailgunNote::new(
         wallet.master_public_key,
