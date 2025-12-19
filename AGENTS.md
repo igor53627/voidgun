@@ -2,130 +2,123 @@
 
 ## Architecture Overview
 
-Voidgun is a privacy pool implementation with two main integration points:
+Voidgun is a privacy-via-proxy implementation using Railgun protocol integration:
 
 ```
 voidgun monorepo (~/pse/voidgun)
 ├── crates/
-│   ├── core/           # Crypto primitives, Merkle tree, notes, keys
-│   ├── prover/         # ZK proof generation via bb CLI
-│   ├── contracts/      # Solidity bindings, event types
-│   └── reth-plugin/    # Reth-agnostic engine (see below)
-├── circuits/           # Noir circuit source
-├── circuits-bin/       # Compiled circuit artifacts
-└── contracts/          # Solidity contracts
-
-PSE reth fork (~/pse/pse/vendor/reth)
-└── crates/voidgun/     # Thin reth adapter
+│   └── railgun-lane/     # Complete Railgun protocol implementation
+├── docs/
+│   └── protocol-visualization.html  # Interactive protocol docs
+└── scripts/              # Build utilities
 ```
 
-## Two-Crate Architecture
+## Railgun Lane Crate
 
-### voidgun-reth-plugin (monorepo)
-Location: `crates/reth-plugin/`
+Location: `crates/railgun-lane/`
 
-**No reth dependencies** - can be tested independently.
+Self-contained Railgun protocol implementation with:
 
-Key components:
-- `VoidgunEngine` - Sync core state machine (`&mut self` API)
-  - `begin_block()` / `end_block()` - Block processing
-  - `handle_deposit()` / `handle_transfer()` / `handle_withdrawal()` - Event processing
-  - `revert_block()` / `revert_to_block()` - Reorg handling
-- `VoidgunExEx` - Async wrapper with `tokio::sync::Mutex`
-- `VoidgunRpc` - Full JSON-RPC with `void_*` namespace
-- `VoidgunStorage` - Sled-backed persistence
+### Modules
+- `artifacts.rs` - Circuit artifact management (IPFS download, caching)
+- `bip32.rs` - BIP32 key derivation for Baby Jubjub curve
+- `contracts.rs` - Railgun contract ABIs and addresses
+- `event_loader.rs` - Shield/Transact event parsing, Merkle tree building
+- `keys.rs` - EdDSA keys (SpendingKey, ViewingKey, RailgunWallet)
+- `lane.rs` - PoolLane trait with sync and transfer methods
+- `notes.rs` - Note encryption/decryption (ChaCha20-Poly1305, AES-GCM)
+- `poseidon.rs` - Circomlib-compatible Poseidon hash
+- `prover.rs` - Groth16 proof generation/verification via ark-circom
+- `rpc.rs` - Ethereum RPC client for event syncing
 
-### reth-voidgun (PSE reth fork)
-Location: `~/pse/pse/vendor/reth/crates/voidgun/`
+### Key Types
+- `RailgunWallet` - Complete wallet with spending/viewing/nullifying keys
+- `RailgunNote` - Shielded note with commitment and nullifier
+- `RailgunProver` - Groth16 proof generator using WASM/ZKEY artifacts
+- `RailgunLane` - PoolLane implementation with sync and transfer
 
-**Thin adapter** (~200 lines) that:
-- Imports `voidgun-reth-plugin` as dependency
-- Translates reth's `Log` type to `RawLog`
-- Connects `ExExContext` notifications to `VoidgunEngine`
-- Exposes node-level RPC methods
+## Build Commands
 
-## Build Requirements
-
-- **nargo**: 1.0.0-beta.16 (Noir compiler)
-- **bb**: Custom build from aztec-packages `next` branch (fixes ECDSA bigfield bug)
-
-Install:
 ```bash
-noirup --version 1.0.0-beta.16
-./scripts/build-bb.sh --install  # Builds bb from source with ECDSA fix
+# Build
+cargo build -p railgun-lane --release
+
+# Test (unit tests)
+cargo test -p railgun-lane
+
+# Test (proof generation, requires artifacts)
+cargo test -p railgun-lane --test proof_generation -- --ignored --nocapture
+
+# Test (e2e with Tenderly)
+cargo test -p railgun-lane --test onchain_verification test_e2e_auto -- --ignored --nocapture
 ```
 
 ## Testing Preferences
 
 - **Use Tenderly for testnet testing** - NOT Anvil or local forks
-- Tenderly RPC URL configured in `contracts/foundry.toml` as `${TENDERLY_RPC_URL}`
-- Set `TENDERLY_RPC_URL` env var before running forge scripts
+- Environment variables:
+  - `TENDERLY_ACCESS_KEY` - Tenderly API key
+  - `TENDERLY_ACCOUNT` - Account name
+  - `TENDERLY_PROJECT` - Project name
+  - `MAINNET_RPC_URL` or `ETH_RPC_URL` - For read-only mainnet tests
 
-## Key Commands
+## Key Derivation Flow
 
-```bash
-# Build monorepo
-cargo build -p voidgun-reth-plugin
+1. User signs domain message with wallet (ECDSA)
+2. Extract entropy: `keccak256(signature)[0:16]`
+3. Generate BIP39 mnemonic (12 words)
+4. Derive BIP32 master on Baby Jubjub curve
+5. Spending key: `m/44'/1984'/0'/0'`
+6. Viewing key: `m/420'/1984'/0'/0'`
 
-# Test monorepo
-cargo test -p voidgun-reth-plugin -p voidgun-prover
+## Circuit Variants
 
-# Build reth fork crate
-cd ~/pse/pse/vendor/reth && cargo check -p reth-voidgun
+Named by inputs x outputs:
+- `01x01` - Simple transfer (1 in, 1 out)
+- `02x02` - Standard with change (2 in, 2 out)
+- `08x02` - Consolidation (8 in, 2 out)
 
-# Compile Noir circuit
-cd circuits-bin/transfer && nargo compile
+Artifacts downloaded from IPFS:
+- WASM (~5 MB) - Witness calculation
+- ZKEY (~50-200 MB) - Proving key
+- VKEY (~5 KB) - Verification key
+
+## EdDSA on Baby Jubjub
+
+Circomlib-compatible Poseidon-based EdDSA:
+
+```
+Signing:   S = r + H(R, A, M) * s (mod subOrder)
+Verify:    S * Base8 == R8 + 8 * H(R, A, M) * A
+Key:       A = Base8 * (s >> 3)
+Transform: x_ark = sqrt(168700) * x_circ
 ```
 
-## RPC Methods
+## Note Structure
 
-### Full RPC (voidgun-reth-plugin)
-- `void_initAccount(address, signature)` - Initialize from wallet signature
-- `void_isInitialized(address)` - Check account status
-- `void_getReceivingKey(address)` - Get receiving key for sending
-- `void_sendTransaction(rawTx)` - Build shielded transfer with ZK proof
-- `void_getBalance(address, token?)` - Get shielded balance
-- `void_listNotes(address)` - List unspent notes
-
-### Node RPC (reth-voidgun)
-- `void_getRoot()` - Current Merkle root
-- `void_getLeafCount()` - Number of commitments
-- `void_isKnownRoot(root)` - Check root validity
-- `void_getMerklePath(leafIndex)` - Get Merkle proof path
-
-## Event Types
-
-From `VoidgunPool.sol`:
-- `Deposit(commitment, value, token, ciphertext, leafIndex, newRoot)`
-- `Transfer(nfNote, nfTx, cmOut, cmChange, newRoot, ciphertextOut, ciphertextChange)`
-- `Withdrawal(nfNote, nfTx, to, value, token)`
-
-## Storage Keys (sled)
-
-- `vk:{address}` - Viewing keys
-- `pk:{address}` - Secp256k1 public keys (x,y)
-- `note:{address}:{merkle_index}` - Decrypted notes
-- `root:{hex}` - Known Merkle roots
-- `nf_note:{hex}` - Note nullifiers
-- `nf_tx:{hex}` - Transaction nullifiers
-- `revert:{block_number}` - Revert operations for reorg handling
-- `last_block` - Last processed block number
-
-## Integration Pattern
-
-```rust
-// In reth node builder:
-use voidgun_reth_plugin::{VoidgunConfig, VoidgunEngine, VoidgunStorage};
-use reth_voidgun::VoidgunExEx;
-
-let storage = Arc::new(VoidgunStorage::open(&config.db_path)?);
-let engine = Arc::new(Mutex::new(VoidgunEngine::new(config, storage)));
-let exex = VoidgunExEx::with_engine(config, engine.clone());
-
-builder
-    .install_exex("voidgun", |ctx| Ok(exex.run(ctx)))
-    .extend_rpc_modules(|ctx| {
-        ctx.modules.merge(VoidgunRpc::new(engine).into_rpc())?;
-        Ok(())
-    })
 ```
+Note = {
+  npk: Poseidon(nk, leafIndex),   // Note public key
+  token: address,                  // Token contract
+  value: amount,                   // Hidden value
+  random: blinding                 // Randomness
+}
+Commitment = Poseidon(npk, token, value, random)
+Nullifier = Poseidon(nullifyingKey, leafIndex)
+```
+
+## Merkle Tree
+
+- Depth: 16 levels
+- Hash: Poseidon (BN254 scalar field)
+- Capacity: 65,536 commitments per tree
+- Synced from on-chain Shield/Transact events
+
+## Recent Changes
+
+### v0.2.0 (2024-12-19)
+- Removed original Voidgun pool (core, prover, contracts, reth-plugin, circuits)
+- Now using Railgun protocol exclusively via `railgun-lane` crate
+- Fixed CVE-2023-42811 (aes-gcm upgrade)
+- Fixed nullifier computation (joinsplit formula)
+- Added streaming download progress for large artifacts

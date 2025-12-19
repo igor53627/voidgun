@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voidgun Protocol Visualization</title>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --accent: #6366f1;
+            --accent-dim: #4f46e5;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --border: #2a2a3a;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--accent), #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        
+        .subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+        }
+        
+        h2 {
+            color: var(--accent);
+            margin: 2rem 0 1rem;
+            font-size: 1.5rem;
+        }
+        
+        h3 {
+            color: var(--text-primary);
+            margin: 1.5rem 0 0.5rem;
+            font-size: 1.1rem;
+        }
+        
+        .section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            padding: 2rem;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .flow-box {
+            background: var(--bg-secondary);
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            text-align: center;
+            min-width: 140px;
+            transition: all 0.3s ease;
+        }
+        
+        .flow-box:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .flow-box.active {
+            border-color: var(--success);
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+        }
+        
+        .flow-box .icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .flow-box .label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        
+        .flow-arrow {
+            color: var(--accent);
+            font-size: 1.5rem;
+        }
+        
+        .interactive-demo {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+        }
+        
+        .demo-controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: var(--accent-dim);
+            transform: translateY(-1px);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        button.secondary {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+        }
+        
+        .output-box {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            font-size: 0.85rem;
+            min-height: 100px;
+            overflow-x: auto;
+        }
+        
+        .output-box pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .key-value {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 0.5rem;
+            margin: 0.25rem 0;
+        }
+        
+        .key-value .key {
+            color: var(--accent);
+        }
+        
+        .key-value .value {
+            color: var(--text-secondary);
+            font-family: monospace;
+            font-size: 0.8rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        
+        th, td {
+            text-align: left;
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        
+        td {
+            color: var(--text-secondary);
+        }
+        
+        .highlight {
+            color: var(--success);
+        }
+        
+        .merkle-tree {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem;
+        }
+        
+        .merkle-level {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+        
+        .merkle-node {
+            width: 60px;
+            height: 30px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            transition: all 0.3s;
+        }
+        
+        .merkle-node.highlighted {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        
+        .merkle-node.path {
+            border-color: var(--success);
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+        }
+        
+        .note-visual {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .note-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .note-card.input {
+            border-left: 3px solid var(--warning);
+        }
+        
+        .note-card.output {
+            border-left: 3px solid var(--success);
+        }
+        
+        .note-card h4 {
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 1rem 0;
+        }
+        
+        .progress-bar .fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            transition: width 0.5s ease;
+        }
+        
+        .step-indicator {
+            display: flex;
+            justify-content: space-between;
+            margin: 1rem 0;
+        }
+        
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .step-circle {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+        }
+        
+        .step.completed .step-circle {
+            background: var(--success);
+            border-color: var(--success);
+        }
+        
+        .step.active .step-circle {
+            border-color: var(--accent);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+        }
+        
+        .step-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        .code-block {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+        
+        .code-block .keyword { color: #c792ea; }
+        .code-block .function { color: #82aaff; }
+        .code-block .string { color: #c3e88d; }
+        .code-block .comment { color: #546e7a; }
+        .code-block .number { color: #f78c6c; }
+        
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+        
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voidgun Protocol</h1>
+        <p class="subtitle">Privacy-via-proxy using Railgun protocol integration</p>
+        
+        <!-- Section 1: Overview -->
+        <div class="section">
+            <h2>1. Protocol Overview</h2>
+            <p>Voidgun enables privacy pool access through Railgun's battle-tested Groth16 circuits. Keys are derived deterministically from your wallet signature.</p>
+            
+            <div class="flow-diagram">
+                <div class="flow-box" id="wallet-box">
+                    <div class="icon">👛</div>
+                    <div class="label">Wallet</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box" id="signature-box">
+                    <div class="icon">✍️</div>
+                    <div class="label">Sign Message</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box" id="keys-box">
+                    <div class="icon">🔑</div>
+                    <div class="label">Derive Keys</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box" id="proof-box">
+                    <div class="icon">🔒</div>
+                    <div class="label">ZK Proofs</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box" id="railgun-box">
+                    <div class="icon">🚂</div>
+                    <div class="label">Railgun Pool</div>
+                </div>
+            </div>
+            
+            <table>
+                <tr>
+                    <th>Component</th>
+                    <th>Purpose</th>
+                    <th>Technology</th>
+                </tr>
+                <tr>
+                    <td>Key Derivation</td>
+                    <td>Derive Baby Jubjub keys from wallet signature</td>
+                    <td>BIP39/BIP32, EdDSA</td>
+                </tr>
+                <tr>
+                    <td>Note Encryption</td>
+                    <td>Encrypt shielded balance commitments</td>
+                    <td>ChaCha20-Poly1305, AES-GCM</td>
+                </tr>
+                <tr>
+                    <td>Proof Generation</td>
+                    <td>Generate validity proofs for transfers</td>
+                    <td>Groth16, ark-circom</td>
+                </tr>
+                <tr>
+                    <td>Merkle Sync</td>
+                    <td>Track commitment tree from chain events</td>
+                    <td>Poseidon hash, depth-16</td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- Section 2: Key Derivation -->
+        <div class="section">
+            <h2>2. Key Derivation Flow</h2>
+            <p>Your Railgun wallet keys are derived deterministically from a single wallet signature. No new seed phrase needed.</p>
+            
+            <div class="interactive-demo">
+                <div class="step-indicator">
+                    <div class="step" id="step1">
+                        <div class="step-circle">1</div>
+                        <div class="step-label">Sign</div>
+                    </div>
+                    <div class="step" id="step2">
+                        <div class="step-circle">2</div>
+                        <div class="step-label">Hash</div>
+                    </div>
+                    <div class="step" id="step3">
+                        <div class="step-circle">3</div>
+                        <div class="step-label">Entropy</div>
+                    </div>
+                    <div class="step" id="step4">
+                        <div class="step-circle">4</div>
+                        <div class="step-label">Mnemonic</div>
+                    </div>
+                    <div class="step" id="step5">
+                        <div class="step-circle">5</div>
+                        <div class="step-label">BIP32</div>
+                    </div>
+                    <div class="step" id="step6">
+                        <div class="step-circle">6</div>
+                        <div class="step-label">Keys</div>
+                    </div>
+                </div>
+                
+                <div class="progress-bar">
+                    <div class="fill" id="derivation-progress" style="width: 0%"></div>
+                </div>
+                
+                <div class="demo-controls">
+                    <button onclick="runKeyDerivation()">Run Key Derivation</button>
+                    <button class="secondary" onclick="resetKeyDerivation()">Reset</button>
+                </div>
+                
+                <div class="output-box" id="key-output">
+                    <pre>Click "Run Key Derivation" to see the flow...</pre>
+                </div>
+            </div>
+            
+            <div class="code-block">
+<pre><span class="comment">// Key derivation paths (Baby Jubjub curve)</span>
+<span class="keyword">const</span> SPENDING_PATH = <span class="string">"m/44'/1984'/0'/0'"</span>;  <span class="comment">// EdDSA signing</span>
+<span class="keyword">const</span> VIEWING_PATH  = <span class="string">"m/420'/1984'/0'/0'"</span>; <span class="comment">// Note decryption</span>
+
+<span class="comment">// Derive from wallet signature</span>
+<span class="keyword">let</span> entropy = <span class="function">keccak256</span>(signature)[<span class="number">0</span>..<span class="number">16</span>];
+<span class="keyword">let</span> mnemonic = <span class="function">bip39_from_entropy</span>(entropy);
+<span class="keyword">let</span> master = <span class="function">bip32_derive_master</span>(mnemonic);
+<span class="keyword">let</span> spending_key = master.<span class="function">derive</span>(SPENDING_PATH);
+<span class="keyword">let</span> viewing_key = master.<span class="function">derive</span>(VIEWING_PATH);</pre>
+            </div>
+        </div>
+        
+        <!-- Section 3: Note Structure -->
+        <div class="section">
+            <h2>3. Note Structure</h2>
+            <p>Shielded balances are stored as encrypted Notes in a Merkle tree. Each note commits to a value without revealing it.</p>
+            
+            <div class="note-visual">
+                <div class="note-card">
+                    <h4>Note Fields</h4>
+                    <div class="key-value">
+                        <span class="key">npk</span>
+                        <span class="value">Poseidon(nk, leafIndex)</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">token</span>
+                        <span class="value">Token address</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">value</span>
+                        <span class="value">Amount (hidden)</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">random</span>
+                        <span class="value">Blinding factor</span>
+                    </div>
+                </div>
+                
+                <div class="note-card">
+                    <h4>Commitment</h4>
+                    <div class="key-value">
+                        <span class="key">hash</span>
+                        <span class="value">Poseidon(npk, token, value, r)</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">size</span>
+                        <span class="value">32 bytes (BN254 scalar)</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">stored</span>
+                        <span class="value">In Merkle tree leaf</span>
+                    </div>
+                </div>
+                
+                <div class="note-card">
+                    <h4>Nullifier</h4>
+                    <div class="key-value">
+                        <span class="key">formula</span>
+                        <span class="value">Poseidon(nk, leafIndex)</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">purpose</span>
+                        <span class="value">Prevent double-spend</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">revealed</span>
+                        <span class="value">On spend (unlinkable)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Section 4: Merkle Tree -->
+        <div class="section">
+            <h2>4. Merkle Tree</h2>
+            <p>Commitments are stored in a depth-16 Poseidon Merkle tree. The tree is synced from on-chain Shield and Transact events.</p>
+            
+            <div class="interactive-demo">
+                <div class="merkle-tree" id="merkle-viz">
+                    <div class="merkle-level">
+                        <div class="merkle-node" id="root">Root</div>
+                    </div>
+                    <div class="merkle-level">
+                        <div class="merkle-node" id="n1">H1</div>
+                        <div class="merkle-node" id="n2">H2</div>
+                    </div>
+                    <div class="merkle-level">
+                        <div class="merkle-node" id="n3">H3</div>
+                        <div class="merkle-node" id="n4">H4</div>
+                        <div class="merkle-node" id="n5">H5</div>
+                        <div class="merkle-node" id="n6">H6</div>
+                    </div>
+                    <div class="merkle-level">
+                        <div class="merkle-node" id="l0">C0</div>
+                        <div class="merkle-node" id="l1">C1</div>
+                        <div class="merkle-node" id="l2">C2</div>
+                        <div class="merkle-node" id="l3">C3</div>
+                        <div class="merkle-node" id="l4">C4</div>
+                        <div class="merkle-node" id="l5">C5</div>
+                        <div class="merkle-node" id="l6">C6</div>
+                        <div class="merkle-node" id="l7">C7</div>
+                    </div>
+                </div>
+                
+                <div class="demo-controls">
+                    <button onclick="showMerklePath(2)">Show Path for C2</button>
+                    <button onclick="showMerklePath(5)">Show Path for C5</button>
+                    <button class="secondary" onclick="resetMerkle()">Reset</button>
+                </div>
+                
+                <div class="output-box" id="merkle-output">
+                    <pre>Click a path button to visualize the Merkle proof...</pre>
+                </div>
+            </div>
+            
+            <table>
+                <tr>
+                    <th>Property</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td>Depth</td>
+                    <td class="highlight">16 levels</td>
+                </tr>
+                <tr>
+                    <td>Capacity</td>
+                    <td>2^16 = 65,536 commitments per tree</td>
+                </tr>
+                <tr>
+                    <td>Hash</td>
+                    <td>Poseidon (BN254 scalar field)</td>
+                </tr>
+                <tr>
+                    <td>Proof Size</td>
+                    <td>16 sibling hashes (512 bytes)</td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- Section 5: Transfer Flow -->
+        <div class="section">
+            <h2>5. Shielded Transfer</h2>
+            <p>A transfer consumes input notes and creates output notes, all verified by a Groth16 proof.</p>
+            
+            <div class="note-visual">
+                <div class="note-card input">
+                    <h4>Input Note</h4>
+                    <div class="key-value">
+                        <span class="key">value</span>
+                        <span class="value">10 ETH</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">nullifier</span>
+                        <span class="value">Revealed on-chain</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">proof</span>
+                        <span class="value">Merkle path to root</span>
+                    </div>
+                </div>
+                
+                <div class="note-card output">
+                    <h4>Output Note (Recipient)</h4>
+                    <div class="key-value">
+                        <span class="key">value</span>
+                        <span class="value">7 ETH</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">npk</span>
+                        <span class="value">Recipient's key</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">encrypted</span>
+                        <span class="value">ChaCha20-Poly1305</span>
+                    </div>
+                </div>
+                
+                <div class="note-card output">
+                    <h4>Change Note (Sender)</h4>
+                    <div class="key-value">
+                        <span class="key">value</span>
+                        <span class="value">3 ETH</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">npk</span>
+                        <span class="value">Sender's key</span>
+                    </div>
+                    <div class="key-value">
+                        <span class="key">encrypted</span>
+                        <span class="value">ChaCha20-Poly1305</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="interactive-demo">
+                <h3>Circuit Variants</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 1rem;">Named by inputs x outputs count</p>
+                
+                <table>
+                    <tr>
+                        <th>Variant</th>
+                        <th>Inputs</th>
+                        <th>Outputs</th>
+                        <th>Use Case</th>
+                    </tr>
+                    <tr>
+                        <td class="highlight">01x01</td>
+                        <td>1</td>
+                        <td>1</td>
+                        <td>Simple send (no change)</td>
+                    </tr>
+                    <tr>
+                        <td class="highlight">02x02</td>
+                        <td>2</td>
+                        <td>2</td>
+                        <td>Standard transfer with change</td>
+                    </tr>
+                    <tr>
+                        <td class="highlight">08x02</td>
+                        <td>8</td>
+                        <td>2</td>
+                        <td>Consolidation (merge notes)</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Section 6: Proof Generation -->
+        <div class="section">
+            <h2>6. Groth16 Proof Generation</h2>
+            <p>Proofs are generated using ark-circom with Railgun's trusted setup artifacts from IPFS.</p>
+            
+            <div class="flow-diagram">
+                <div class="flow-box">
+                    <div class="icon">📝</div>
+                    <div class="label">Witness</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div class="icon">⚙️</div>
+                    <div class="label">WASM</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div class="icon">🔐</div>
+                    <div class="label">ZKEY</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div class="icon">✅</div>
+                    <div class="label">Proof</div>
+                </div>
+            </div>
+            
+            <div class="code-block">
+<pre><span class="comment">// Proof generation with ark-circom</span>
+<span class="keyword">let</span> prover = <span class="function">RailgunProver::new</span>(artifact_store);
+
+<span class="comment">// Build witness for 2-input, 2-output transfer</span>
+<span class="keyword">let</span> witness = <span class="function">TransactWitness</span> {
+    merkle_root,
+    bound_params_hash,
+    nullifiers: [nf1, nf2],
+    commitments: [cm_out, cm_change],
+    <span class="comment">// ... private inputs</span>
+};
+
+<span class="comment">// Generate Groth16 proof (~2-5 seconds)</span>
+<span class="keyword">let</span> proof = prover.<span class="function">prove</span>(&variant, &witness).<span class="keyword">await</span>?;
+
+<span class="comment">// Verify locally before submitting</span>
+<span class="keyword">let</span> valid = prover.<span class="function">verify_proof</span>(&variant, &proof).<span class="keyword">await</span>?;</pre>
+            </div>
+            
+            <table>
+                <tr>
+                    <th>Artifact</th>
+                    <th>Size</th>
+                    <th>Purpose</th>
+                </tr>
+                <tr>
+                    <td>WASM</td>
+                    <td>~5 MB</td>
+                    <td>Witness calculation (circom)</td>
+                </tr>
+                <tr>
+                    <td>ZKEY</td>
+                    <td>~50-200 MB</td>
+                    <td>Proving key (Groth16)</td>
+                </tr>
+                <tr>
+                    <td>VKEY</td>
+                    <td>~5 KB</td>
+                    <td>Verification key (JSON)</td>
+                </tr>
+            </table>
+        </div>
+        
+        <footer>
+            <p>
+                Voidgun Protocol Visualization | 
+                <a href="https://github.com/igor53627/voidgun">GitHub</a> | 
+                <a href="https://railgun.org">Railgun</a>
+            </p>
+        </footer>
+    </div>
+    
+    <script>
+        // Key derivation demo
+        let derivationStep = 0;
+        
+        async function runKeyDerivation() {
+            const steps = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'];
+            const progress = document.getElementById('derivation-progress');
+            const output = document.getElementById('key-output').querySelector('pre');
+            
+            const outputs = [
+                'Step 1: Signing domain message...\n\nMessage: "Authorize Railgun privacy pool access via Voidgun proxy."',
+                'Step 2: Hashing signature...\n\nkeccak256(signature) = 0x7f8a3b...',
+                'Step 3: Extracting entropy...\n\nentropy = keccak256(sig)[0:16] = 0x7f8a3b2c1d4e5f60...',
+                'Step 4: Generating mnemonic...\n\n"abandon ability able about above absent absorb abstract absurd abuse access accident"',
+                'Step 5: BIP32 derivation on Baby Jubjub...\n\nm/44\'/1984\'/0\'/0\' -> Spending Key\nm/420\'/1984\'/0\'/0\' -> Viewing Key',
+                'Step 6: Keys ready!\n\nSpending Key (EdDSA): 0x1a2b3c4d...\nViewing Key: 0x5e6f7a8b...\nNullifying Key: 0x9c0d1e2f...\n\n[OK] Wallet initialized'
+            ];
+            
+            for (let i = 0; i < steps.length; i++) {
+                await new Promise(r => setTimeout(r, 600));
+                
+                steps.forEach((s, idx) => {
+                    const el = document.getElementById(s);
+                    el.classList.remove('active', 'completed');
+                    if (idx < i) el.classList.add('completed');
+                    if (idx === i) el.classList.add('active');
+                });
+                
+                progress.style.width = ((i + 1) / steps.length * 100) + '%';
+                output.textContent = outputs[i];
+            }
+            
+            await new Promise(r => setTimeout(r, 300));
+            document.getElementById('step6').classList.remove('active');
+            document.getElementById('step6').classList.add('completed');
+        }
+        
+        function resetKeyDerivation() {
+            const steps = ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'];
+            steps.forEach(s => {
+                document.getElementById(s).classList.remove('active', 'completed');
+            });
+            document.getElementById('derivation-progress').style.width = '0%';
+            document.getElementById('key-output').querySelector('pre').textContent = 
+                'Click "Run Key Derivation" to see the flow...';
+        }
+        
+        // Merkle tree demo
+        function showMerklePath(leafIndex) {
+            resetMerkle();
+            
+            const paths = {
+                2: ['l2', 'l3', 'n4', 'n3', 'n2', 'n1', 'root'],
+                5: ['l5', 'l4', 'n6', 'n5', 'n1', 'n2', 'root']
+            };
+            
+            const siblings = {
+                2: ['l3', 'n3', 'n1'],
+                5: ['l4', 'n5', 'n2']
+            };
+            
+            const path = paths[leafIndex];
+            const sibs = siblings[leafIndex];
+            
+            document.getElementById('l' + leafIndex).classList.add('highlighted');
+            sibs.forEach(s => document.getElementById(s).classList.add('path'));
+            
+            const output = document.getElementById('merkle-output').querySelector('pre');
+            output.textContent = `Merkle Proof for C${leafIndex}:\n\n`;
+            output.textContent += `Leaf: C${leafIndex}\n`;
+            output.textContent += `Siblings: [${sibs.join(', ')}]\n`;
+            output.textContent += `Path: leaf -> ${path.slice(1).join(' -> ')}\n\n`;
+            output.textContent += `Proof verifies that C${leafIndex} is in the tree.`;
+        }
+        
+        function resetMerkle() {
+            document.querySelectorAll('.merkle-node').forEach(n => {
+                n.classList.remove('highlighted', 'path');
+            });
+            document.getElementById('merkle-output').querySelector('pre').textContent = 
+                'Click a path button to visualize the Merkle proof...';
+        }
+        
+        // Animate flow boxes on hover
+        document.querySelectorAll('.flow-box').forEach(box => {
+            box.addEventListener('mouseenter', () => {
+                box.classList.add('active');
+            });
+            box.addEventListener('mouseleave', () => {
+                box.classList.remove('active');
+            });
+        });
+    </script>
+</body>
+</html>

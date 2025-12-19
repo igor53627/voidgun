@@ -1,47 +1,65 @@
 {
   "project": {
     "name": "Voidgun",
-    "description": "Privacy-via-proxy architecture for Ethereum with Railgun integration",
+    "description": "Privacy-via-proxy architecture for Ethereum using Railgun protocol integration",
     "version": "0.1.0",
     "repository": "https://github.com/igor53627/voidgun"
   },
   "architecture": {
-    "overview": "Voidgun implements a privacy pool using ZK proofs where the wallet retains spending authority via ECDSA signatures. The proxy cannot steal funds - only wallet-signed transactions authorize spends.",
+    "overview": "Voidgun provides privacy pool access through Railgun's battle-tested Groth16 circuits. Keys are derived deterministically from wallet signatures, enabling privacy without new seed phrases.",
     "crates": {
-      "core": "Rust types for keys, notes, merkle trees, Poseidon hashing",
-      "prover": "Noir/Barretenberg proving integration for ECDSA verification",
-      "contracts": "VoidgunPool Solidity + Rust bindings",
-      "reth-plugin": "reth RPC middleware + ExEx for event indexing",
-      "railgun-lane": "Railgun protocol integration - EdDSA signatures, Groth16 proofs, Merkle sync"
-    },
-    "circuits": {
-      "transfer": "Noir circuit for shielded transfers with ECDSA verification",
-      "withdrawal": "Noir circuit for unshielding funds"
+      "railgun-lane": "Complete Railgun protocol implementation - EdDSA signatures, Groth16 proofs, Merkle sync, note encryption"
     }
   },
+  "railgun_lane_modules": {
+    "artifacts": "Circuit artifact management - downloads WASM/ZKEY/VKEY from IPFS",
+    "bip32": "BIP32 key derivation for Baby Jubjub curve",
+    "contracts": "Railgun contract ABIs, addresses, and calldata builders",
+    "event_loader": "Shield/Transact event parsing and Merkle tree building",
+    "keys": "EdDSA keys - SpendingKey, ViewingKey, NullifyingKey, RailgunWallet",
+    "lane": "PoolLane trait implementation with sync and transfer methods",
+    "notes": "Note structure, commitment, encryption/decryption (ChaCha20-Poly1305, AES-GCM)",
+    "poseidon": "Circomlib-compatible Poseidon hash (light-poseidon)",
+    "prover": "Groth16 proof generation/verification using ark-circom",
+    "rpc": "Ethereum RPC client for event syncing"
+  },
   "technologies": {
-    "zk": ["Noir", "Barretenberg", "Groth16", "ark-circom"],
-    "crypto": ["Baby Jubjub (EdDSA)", "secp256k1 (ECDSA)", "Poseidon hash"],
-    "blockchain": ["Ethereum", "reth", "Solidity", "Foundry"],
-    "rust": ["arkworks", "alloy", "tokio"]
+    "zk": ["Groth16", "ark-circom", "Railgun trusted setup"],
+    "crypto": ["Baby Jubjub (EdDSA)", "Poseidon hash", "ChaCha20-Poly1305", "AES-GCM", "X25519 ECDH"],
+    "blockchain": ["Ethereum", "Railgun contracts"],
+    "rust": ["arkworks (ark-bn254, ark-groth16)", "alloy", "tokio", "wasmer"]
   },
   "key_concepts": {
     "eddsa_circomlib": {
       "description": "EdDSA on Baby Jubjub using circomlib's Poseidon-based variant",
-      "signing_equation": "S = r + hm * s (mod subOrder)",
-      "verification_equation": "S * Base8 == R8 + 8 * hm * A",
+      "signing_equation": "S = r + H(R, A, M) * s (mod subOrder)",
+      "verification_equation": "S * Base8 == R8 + 8 * H(R, A, M) * A",
       "key_derivation": "A = Base8 * (s >> 3) where s is pruned blake512 hash",
       "coordinate_transform": "x_ark = sqrt(168700) * x_circ for arkworks <-> circomlib"
     },
-    "railgun_circuits": {
-      "description": "Circom circuits for shielded transactions",
-      "variants": "Named by input/output counts: 01x01, 02x02, etc.",
-      "artifacts": "WASM for witness generation, ZKEY for proving"
+    "note_structure": {
+      "fields": ["npk (note public key)", "token", "value", "random"],
+      "commitment": "Poseidon(npk, token, value, random)",
+      "nullifier": "Poseidon(nullifyingKey, leafIndex)"
+    },
+    "circuit_variants": {
+      "naming": "InputsxOutputs format",
+      "examples": ["01x01 (simple)", "02x02 (with change)", "08x02 (consolidation)"],
+      "artifacts": "WASM for witness, ZKEY for proving, VKEY for verification"
     },
     "merkle_tree": {
       "depth": 16,
-      "hash": "Poseidon with BN254 scalar field"
+      "hash": "Poseidon with BN254 scalar field",
+      "sync": "Built from on-chain Shield/Transact events"
     }
+  },
+  "key_derivation_flow": {
+    "step1": "User signs domain message with wallet (ECDSA)",
+    "step2": "Extract 128-bit entropy: keccak256(signature)[0:16]",
+    "step3": "Generate BIP39 mnemonic (12 words)",
+    "step4": "Derive BIP32 master key on Baby Jubjub curve",
+    "step5": "Derive spending key: m/44'/1984'/0'/0'",
+    "step6": "Derive viewing key: m/420'/1984'/0'/0'"
   },
   "testing": {
     "unit_tests": "cargo test -p railgun-lane",
@@ -52,15 +70,13 @@
       "mainnet_rpc": "MAINNET_RPC_URL or ETH_RPC_URL for read-only tests"
     }
   },
-  "known_issues": {
-    "bb_bigfield_bug": {
-      "description": "Released bb CLI has ECDSA bigfield bug",
-      "solution": "Build bb from aztec-packages next branch",
-      "script": "./scripts/build-bb.sh --install"
-    }
-  },
-  "recent_fixes": {
-    "eddsa_secret_storage": {
+  "recent_changes": {
+    "refactor_railgun_only": {
+      "date": "2024-12-19",
+      "description": "Removed original Voidgun pool implementation, kept only Railgun lane",
+      "removed": ["voidgun-core", "voidgun-prover", "voidgun-contracts", "reth-plugin", "circuits/", "contracts/"]
+    },
+    "eddsa_secret_fix": {
       "date": "2024-12-19",
       "issue": "BabyJubjubScalar reduced secret mod field order, breaking s = 8 * (s >> 3)",
       "fix": "Store secret as raw bytes, use BigUint for arithmetic"

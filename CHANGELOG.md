@@ -7,42 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Updated documentation and added protocol visualization
+
+## [0.2.0] - 2024-12-19
+
+### Changed
+- **Major refactor**: Removed original Voidgun pool, now using Railgun protocol exclusively
+
 ### Removed
-- **voidgun-core**: Original Voidgun pool core types (replaced by railgun-lane self-contained implementation)
-- **voidgun-prover**: Noir/Barretenberg proving stack (replaced by ark-circom + Railgun IPFS artifacts)
+- **voidgun-core**: Original Voidgun pool core types (replaced by railgun-lane)
+- **voidgun-prover**: Noir/Barretenberg proving stack (replaced by ark-circom + Railgun artifacts)
 - **voidgun-contracts**: VoidgunPool Rust bindings (railgun-lane has own contract types)
-- **reth-plugin**: Reth ExEx integration for original Voidgun pool (to be rebuilt for Railgun)
+- **reth-plugin**: Reth ExEx integration for original Voidgun pool
 - **circuits/**: Noir circuit sources for original Voidgun pool
-- **circuits-bin/**: Compiled Noir artifacts for original Voidgun pool
+- **circuits-bin/**: Compiled Noir artifacts
 - **contracts/**: VoidgunPool Solidity contracts and verifiers
 
+### Security
+- Upgraded `aes-gcm` to 0.10.3 to fix CVE-2023-42811
+- Fixed nullifier computation to use `joinsplit_nullifier(nk, leafIndex)` formula
+- Added explicit error handling in G1/G2 point parsing (fail-fast on malformed data)
+
+### Improved
+- Streaming downloads with incremental progress reporting for large circuit artifacts
+
 ### Added
-- `railgun-lane` crate: Rust implementation of Railgun protocol for privacy pool integration
-  - Full EdDSA signature generation compatible with circomlib's Poseidon-based EdDSA
-  - Baby Jubjub curve operations with coordinate transformation between arkworks and circomlib
+- `railgun-lane` crate: Complete Railgun protocol implementation
+  - EdDSA signature generation compatible with circomlib's Poseidon-based EdDSA
+  - Baby Jubjub curve operations with arkworks <-> circomlib coordinate transformation
   - Groth16 proof generation using ark-circom with Railgun's trusted setup
   - Merkle tree syncing from on-chain Shield/Transact events
-  - End-to-end proof verification against deployed Railgun contracts
+  - Trial decryption for Shield events (AES-GCM) and Transact events (ChaCha20-Poly1305)
+  - Circuit artifact management with IPFS download and caching
+  - End-to-end proof verification using VKEY JSON artifacts
 
 ### Fixed
 - **EdDSA signature verification**: Fixed critical bug where `BabyJubjubScalar::from_le_bytes_mod_order()` 
-  was reducing the pruned secret scalar modulo the Baby Jubjub scalar field order. This corrupted the 
-  bottom 3 bits and broke the identity `s = 8 * (s >> 3)` that circomlib relies on.
-  - Changed `SpendingKey.secret` from `BabyJubjubScalar` to `secret_bytes: [u8; 32]` to preserve 
-    the full 256-bit pruned value
-  - Signature arithmetic now uses `BigUint` for `S = r + hm * s (mod subOrder)` without premature reduction
+  was reducing the pruned secret scalar modulo the Baby Jubjub scalar field order
+  - Changed `SpendingKey.secret` to raw bytes to preserve the full 256-bit pruned value
+  - Signature arithmetic now uses `BigUint` for `S = r + hm * s (mod subOrder)`
   - Public key derivation uses `BigUint` bit-shifting before converting to scalar
 
-### Changed
-- Baby Jubjub Base8 point now uses correct arkworks coordinates with `sqrt(168700)` transformation
-- `SpendingKey::public_xy()` returns circomlib-format coordinates for circuit compatibility
-- `SpendingKey::sign()` outputs R8 coordinates in circomlib format
-
-## [0.1.0] - 2024-12-19
+## [0.1.0] - 2024-12-18
 
 ### Added
-- Initial Voidgun implementation with Noir circuits
-- Privacy-via-proxy architecture for Ethereum
+- Initial Voidgun implementation with Noir circuits (now deprecated)
+- Privacy-via-proxy architecture concept
 - ECDSA signature verification in ZK circuits
-- reth ExEx plugin for RPC proxy and event indexing
-- VoidgunPool Solidity contracts
+- reth ExEx plugin prototype
