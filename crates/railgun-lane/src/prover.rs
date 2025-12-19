@@ -1110,10 +1110,18 @@ fn parse_g1_point(value: &serde_json::Value) -> Result<ark_bn254::G1Affine, Prov
         ));
     }
 
-    let x = Fq::from_str(arr[0].as_str().unwrap_or("0"))
-        .map_err(|_| ProverError::SerializationError("invalid G1.x".into()))?;
-    let y = Fq::from_str(arr[1].as_str().unwrap_or("0"))
-        .map_err(|_| ProverError::SerializationError("invalid G1.y".into()))?;
+    let x = Fq::from_str(
+        arr[0]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G1.x is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G1.x".into()))?;
+    let y = Fq::from_str(
+        arr[1]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G1.y is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G1.y".into()))?;
 
     Ok(ark_bn254::G1Affine::new(x, y))
 }
@@ -1140,14 +1148,30 @@ fn parse_g2_point(value: &serde_json::Value) -> Result<ark_bn254::G2Affine, Prov
         .as_array()
         .ok_or_else(|| ProverError::SerializationError("G2.y is not an array".into()))?;
 
-    let x_c0 = Fq::from_str(x_arr[0].as_str().unwrap_or("0"))
-        .map_err(|_| ProverError::SerializationError("invalid G2.x.c0".into()))?;
-    let x_c1 = Fq::from_str(x_arr[1].as_str().unwrap_or("0"))
-        .map_err(|_| ProverError::SerializationError("invalid G2.x.c1".into()))?;
-    let y_c0 = Fq::from_str(y_arr[0].as_str().unwrap_or("0"))
-        .map_err(|_| ProverError::SerializationError("invalid G2.y.c0".into()))?;
-    let y_c1 = Fq::from_str(y_arr[1].as_str().unwrap_or("0"))
-        .map_err(|_| ProverError::SerializationError("invalid G2.y.c1".into()))?;
+    let x_c0 = Fq::from_str(
+        x_arr[0]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.x.c0 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.x.c0".into()))?;
+    let x_c1 = Fq::from_str(
+        x_arr[1]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.x.c1 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.x.c1".into()))?;
+    let y_c0 = Fq::from_str(
+        y_arr[0]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.y.c0 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.y.c0".into()))?;
+    let y_c1 = Fq::from_str(
+        y_arr[1]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.y.c1 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.y.c1".into()))?;
 
     let x = Fq2::new(x_c0, x_c1);
     let y = Fq2::new(y_c0, y_c1);

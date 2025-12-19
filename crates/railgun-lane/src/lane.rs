@@ -786,8 +786,9 @@ impl RailgunLane {
                         for nullifier in &nullifier_event.nullifiers {
                             self.spent_nullifiers.insert(*nullifier);
 
-                            self.notes.retain(|(note, _)| {
-                                note.nullifier(wallet.nullifying_key) != *nullifier
+                            self.notes.retain(|(_, leaf_index)| {
+                                RailgunNote::joinsplit_nullifier(wallet.nullifying_key, *leaf_index)
+                                    != *nullifier
                             });
                         }
                     }
