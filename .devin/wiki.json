@@ -2,7 +2,7 @@
   "project": {
     "name": "Voidgun",
     "description": "Privacy-via-proxy architecture for Ethereum using Railgun protocol integration",
-    "version": "0.1.0",
+    "version": "0.2.1",
     "repository": "https://github.com/igor53627/voidgun"
   },
   "architecture": {
@@ -49,8 +49,11 @@
     },
     "merkle_tree": {
       "depth": 16,
+      "max_depth_constant": "MAX_MERKLE_DEPTH = 16",
+      "capacity": "2^16 = 65536 leaves per tree",
       "hash": "Poseidon with BN254 scalar field",
-      "sync": "Built from on-chain Shield/Transact events"
+      "sync": "Built from on-chain Shield/Transact events",
+      "validation": "Depth and capacity validated at construction/insertion"
     }
   },
   "key_derivation_flow": {
@@ -71,6 +74,16 @@
     }
   },
   "recent_changes": {
+    "security_audit_fixes": {
+      "date": "2024-12-19",
+      "description": "Addressed security audit findings in Merkle tree and prover",
+      "fixes": [
+        "VULN-001/002: NoteMerkleTree::new() validates depth <= 16, returns Result",
+        "VULN-001/002: NoteMerkleTree::insert() checks capacity, returns Result",
+        "VULN-003: validate_transact_witness() validates Merkle proof shapes before circuit",
+        "VULN-004: Witness padding only allows diff of 1, errors on larger mismatches"
+      ]
+    },
     "refactor_railgun_only": {
       "date": "2024-12-19",
       "description": "Removed original Voidgun pool implementation, kept only Railgun lane",

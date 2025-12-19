@@ -136,9 +136,11 @@ Commitment = Poseidon(npk, token, value, random)
 ```
 
 ### Merkle Tree
-- Depth: 16 levels
+- Depth: 16 levels (MAX_MERKLE_DEPTH constant)
+- Capacity: 65,536 leaves per tree
 - Hash: Poseidon with BN254 scalar field
 - Synced from on-chain Shield/Transact events
+- Validated: Depth and capacity checks prevent panics
 
 ### Circuit Variants
 Named by input/output counts:
