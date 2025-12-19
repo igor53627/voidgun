@@ -5,6 +5,7 @@
 //!
 //! Artifacts are organized by circuit variant (e.g., "01x01" = 1 nullifier, 1 commitment).
 
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -334,10 +335,25 @@ impl ArtifactStore {
 
         let total_size = response.content_length();
 
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| ArtifactError::DownloadFailed(e.to_string()))?;
+        let mut bytes_vec = Vec::new();
+        let mut stream = response.bytes_stream();
+        let mut downloaded_so_far = 0u64;
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| ArtifactError::DownloadFailed(e.to_string()))?;
+            downloaded_so_far += chunk.len() as u64;
+            bytes_vec.extend_from_slice(&chunk);
+
+            if downloaded_so_far % (1024 * 1024) < chunk.len() as u64 {
+                self.report_progress(DownloadProgress {
+                    file: filename.to_string(),
+                    downloaded: downloaded_so_far,
+                    total: total_size,
+                    phase: "downloading".to_string(),
+                });
+            }
+        }
+        let bytes = bytes_vec;
 
         self.report_progress(DownloadProgress {
             file: filename.to_string(),
@@ -348,7 +364,7 @@ impl ArtifactStore {
 
         let data = if is_brotli {
             let mut decompressed = Vec::new();
-            let mut decoder = brotli::Decompressor::new(bytes.as_ref(), 4096);
+            let mut decoder = brotli::Decompressor::new(bytes.as_slice(), 4096);
             std::io::Read::read_to_end(&mut decoder, &mut decompressed)
                 .map_err(|e| ArtifactError::DecompressionFailed(e.to_string()))?;
             decompressed
