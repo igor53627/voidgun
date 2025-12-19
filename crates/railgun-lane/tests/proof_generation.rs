@@ -108,7 +108,7 @@ async fn test_prove_transact_1x1() {
     let mut rng = rand::thread_rng();
 
     // Create a simple merkle tree with one note
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Create input note
     let input_note = RailgunNote::new(
@@ -119,7 +119,7 @@ async fn test_prove_transact_1x1() {
     );
 
     // Insert into tree
-    let leaf_idx = tree.insert(input_note.commitment());
+    let leaf_idx = tree.insert(input_note.commitment()).unwrap();
     let merkle_proof = tree.proof(leaf_idx);
     let merkle_root = tree.root();
 
@@ -200,7 +200,7 @@ async fn test_prove_transact_1x2() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Input: 1 note of 2 ETH
     let input_note = RailgunNote::new(
@@ -210,7 +210,7 @@ async fn test_prove_transact_1x2() {
         Field::rand(&mut rng),
     );
 
-    let leaf_idx = tree.insert(input_note.commitment());
+    let leaf_idx = tree.insert(input_note.commitment()).unwrap();
     let merkle_proof = tree.proof(leaf_idx);
     let merkle_root = tree.root();
 
@@ -276,7 +276,7 @@ async fn test_prove_transact_2x1() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Input: 2 notes of 0.5 ETH each (merge)
     let input_note1 = RailgunNote::new(
@@ -292,8 +292,8 @@ async fn test_prove_transact_2x1() {
         Field::rand(&mut rng),
     );
 
-    let leaf_idx1 = tree.insert(input_note1.commitment());
-    let leaf_idx2 = tree.insert(input_note2.commitment());
+    let leaf_idx1 = tree.insert(input_note1.commitment()).unwrap();
+    let leaf_idx2 = tree.insert(input_note2.commitment()).unwrap();
     let merkle_proof1 = tree.proof(leaf_idx1);
     let merkle_proof2 = tree.proof(leaf_idx2);
     let merkle_root = tree.root();
@@ -354,7 +354,7 @@ async fn test_prove_transact_2x2() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     // Input: 2 notes
     let input_note1 = RailgunNote::new(
@@ -370,8 +370,8 @@ async fn test_prove_transact_2x2() {
         Field::rand(&mut rng),
     );
 
-    let leaf_idx1 = tree.insert(input_note1.commitment());
-    let leaf_idx2 = tree.insert(input_note2.commitment());
+    let leaf_idx1 = tree.insert(input_note1.commitment()).unwrap();
+    let leaf_idx2 = tree.insert(input_note2.commitment()).unwrap();
     let merkle_proof1 = tree.proof(leaf_idx1);
     let merkle_proof2 = tree.proof(leaf_idx2);
     let merkle_root = tree.root();
@@ -445,7 +445,7 @@ async fn test_proof_verification() {
     let wallet = setup_wallet();
     let mut rng = rand::thread_rng();
 
-    let mut tree = NoteMerkleTree::new(16);
+    let mut tree = NoteMerkleTree::new(16).unwrap();
 
     let input_note = RailgunNote::new(
         wallet.master_public_key,
@@ -454,7 +454,7 @@ async fn test_proof_verification() {
         Field::rand(&mut rng),
     );
 
-    let leaf_idx = tree.insert(input_note.commitment());
+    let leaf_idx = tree.insert(input_note.commitment()).unwrap();
     let merkle_proof = tree.proof(leaf_idx);
     let merkle_root = tree.root();
 

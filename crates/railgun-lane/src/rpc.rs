@@ -24,6 +24,9 @@ pub enum RpcError {
 
     #[error("No provider configured")]
     NoProvider,
+
+    #[error("Merkle tree error: {0}")]
+    MerkleTreeError(String),
 }
 
 /// Railgun event types
@@ -421,7 +424,8 @@ impl EventSyncer {
     ) -> Result<crate::notes::NoteMerkleTree, RpcError> {
         let events = self.sync_to(target_block).await?;
 
-        let mut tree = crate::notes::NoteMerkleTree::new(tree_depth);
+        let mut tree = crate::notes::NoteMerkleTree::new(tree_depth)
+            .map_err(|e| RpcError::MerkleTreeError(e.to_string()))?;
 
         // Collect all commitments with their positions
         let mut commitments_with_pos: Vec<(u64, Field)> = Vec::new();
@@ -462,7 +466,8 @@ impl EventSyncer {
                     pos
                 );
             }
-            tree.insert(*commitment);
+            tree.insert(*commitment)
+                .map_err(|e| RpcError::MerkleTreeError(e.to_string()))?;
         }
 
         tracing::info!("Built merkle tree with {} leaves", tree.leaves.len());

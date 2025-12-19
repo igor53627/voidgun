@@ -110,6 +110,9 @@ pub enum ProverError {
 
     #[error("WASM not available for circuit")]
     WasmNotAvailable,
+
+    #[error("Invalid witness: {0}")]
+    InvalidWitness(String),
 }
 
 /// Railgun circuit types
@@ -397,6 +400,75 @@ impl RailgunProver {
         BigInt::from_bytes_be(num_bigint::Sign::Plus, &f.into_bigint().to_bytes_be())
     }
 
+    /// Validate TransactWitness structure before proof generation.
+    ///
+    /// Checks:
+    /// - Input/output counts are non-zero and match circuit constraints
+    /// - Merkle proof lengths match expected depth (16 for Railgun)
+    /// - Merkle indices are within valid range
+    /// - Array lengths are consistent
+    fn validate_transact_witness(witness: &TransactWitness) -> Result<(), ProverError> {
+        use crate::notes::MAX_MERKLE_DEPTH;
+
+        let num_inputs = witness.input_notes.len();
+        let num_outputs = witness.output_notes.len();
+
+        // Validate counts
+        if num_inputs == 0 {
+            return Err(ProverError::InvalidWitness(
+                "must have at least one input note".to_string(),
+            ));
+        }
+        if num_outputs == 0 {
+            return Err(ProverError::InvalidWitness(
+                "must have at least one output note".to_string(),
+            ));
+        }
+
+        // Validate Merkle proof count matches input count
+        if witness.input_merkle_proofs.len() != num_inputs {
+            return Err(ProverError::InvalidWitness(format!(
+                "input_merkle_proofs length {} doesn't match input_notes length {}",
+                witness.input_merkle_proofs.len(),
+                num_inputs
+            )));
+        }
+
+        // Validate Merkle index count matches input count
+        if witness.input_merkle_indices.len() != num_inputs {
+            return Err(ProverError::InvalidWitness(format!(
+                "input_merkle_indices length {} doesn't match input_notes length {}",
+                witness.input_merkle_indices.len(),
+                num_inputs
+            )));
+        }
+
+        // Validate each Merkle proof has correct length (depth 16 for Railgun)
+        for (i, proof) in witness.input_merkle_proofs.iter().enumerate() {
+            if proof.len() != MAX_MERKLE_DEPTH {
+                return Err(ProverError::InvalidWitness(format!(
+                    "input_merkle_proofs[{}] has length {} but expected {} (Railgun depth)",
+                    i,
+                    proof.len(),
+                    MAX_MERKLE_DEPTH
+                )));
+            }
+        }
+
+        // Validate Merkle indices are within valid range for depth 16 tree
+        let max_index = (1u64 << MAX_MERKLE_DEPTH) - 1;
+        for (i, &idx) in witness.input_merkle_indices.iter().enumerate() {
+            if idx > max_index {
+                return Err(ProverError::InvalidWitness(format!(
+                    "input_merkle_indices[{}] = {} exceeds maximum {} for depth {}",
+                    i, idx, max_index, MAX_MERKLE_DEPTH
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Compute boundParamsHash for circuit using keccak256(abi.encode(BoundParams))
     ///
     /// This matches the Railgun Verifier.sol contract's hashBoundParams() function:
@@ -542,20 +614,33 @@ impl RailgunProver {
             matrices.num_constraints
         );
 
-        // Railgun's WASM produces one fewer signal than the ZKEY expects.
-        // This appears to be an artifact mismatch in the official IPFS bundle.
-        // The WASM excludes a trailing padding signal that the ZKEY includes.
+        // Handle witness length mismatch.
+        // Railgun's official WASM sometimes produces one fewer signal than ZKEY expects
+        // due to artifact mismatch in the IPFS bundle. We allow padding by exactly 1 signal,
+        // but reject larger mismatches as they likely indicate a bug.
         let mut full_assignment = full_assignment;
         if full_assignment.len() != expected_len {
-            tracing::warn!(
-                "Witness length mismatch: WASM produced {} signals, ZKEY expects {}",
-                full_assignment.len(),
-                expected_len
-            );
-            // Pad with zeros if WASM produced fewer signals
-            while full_assignment.len() < expected_len {
-                tracing::warn!("Padding witness with zero at index {}", full_assignment.len());
+            let diff = expected_len.saturating_sub(full_assignment.len());
+            if diff == 1 {
+                tracing::debug!(
+                    "Witness length mismatch: WASM produced {} signals, ZKEY expects {} (padding by 1)",
+                    full_assignment.len(),
+                    expected_len
+                );
                 full_assignment.push(Field::from(0u64));
+            } else if full_assignment.len() < expected_len {
+                return Err(ProverError::WitnessGenerationFailed(format!(
+                    "witness length mismatch: WASM produced {} signals but ZKEY expects {} (diff {})",
+                    full_assignment.len(),
+                    expected_len,
+                    diff
+                )));
+            } else {
+                return Err(ProverError::WitnessGenerationFailed(format!(
+                    "witness too long: WASM produced {} signals but ZKEY expects {}",
+                    full_assignment.len(),
+                    expected_len
+                )));
             }
         }
 
@@ -687,6 +772,9 @@ impl RailgunProver {
         &self,
         witness: TransactWitness,
     ) -> Result<RailgunProof, ProverError> {
+        // Validate witness structure before proceeding
+        Self::validate_transact_witness(&witness)?;
+
         let num_nullifiers = witness.input_notes.len();
         let num_commitments = witness.output_notes.len();
 

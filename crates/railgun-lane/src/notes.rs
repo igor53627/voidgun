@@ -27,6 +27,9 @@ pub enum NoteError {
 
     #[error("Invalid note data: {0}")]
     InvalidNote(String),
+
+    #[error("Merkle tree error: {0}")]
+    MerkleTreeError(String),
 }
 
 /// Railgun note (unencrypted)
@@ -349,28 +352,60 @@ pub struct NoteMerkleTree {
     pub nodes: Vec<Vec<Field>>,
 }
 
+/// Maximum supported Merkle tree depth (ZERO_HASHES has 17 elements for levels 0-16)
+pub const MAX_MERKLE_DEPTH: usize = 16;
+
 impl NoteMerkleTree {
-    pub fn new(depth: usize) -> Self {
+    /// Create a new Merkle tree with the specified depth.
+    ///
+    /// # Errors
+    /// Returns `NoteError::MerkleTreeError` if depth exceeds MAX_MERKLE_DEPTH (16).
+    pub fn new(depth: usize) -> Result<Self, NoteError> {
+        if depth > MAX_MERKLE_DEPTH {
+            return Err(NoteError::MerkleTreeError(format!(
+                "depth {} exceeds maximum {} (ZERO_HASHES only precomputed for 0-16)",
+                depth, MAX_MERKLE_DEPTH
+            )));
+        }
+
         let mut nodes = Vec::with_capacity(depth + 1);
         for level in 0..=depth {
             let size = 1 << (depth - level);
-            // Initialize with precomputed zero hashes for this level
             nodes.push(vec![ZERO_HASHES[level]; size]);
         }
 
-        Self {
+        Ok(Self {
             depth,
             leaves: Vec::new(),
             nodes,
-        }
+        })
     }
 
-    /// Insert a new leaf and return its index
-    pub fn insert(&mut self, leaf: Field) -> u64 {
+    /// Returns the maximum number of leaves this tree can hold.
+    pub fn capacity(&self) -> usize {
+        1 << self.depth
+    }
+
+    /// Returns true if the tree is full.
+    pub fn is_full(&self) -> bool {
+        self.leaves.len() >= self.capacity()
+    }
+
+    /// Insert a new leaf and return its index.
+    ///
+    /// # Errors
+    /// Returns `NoteError::MerkleTreeError` if the tree is full.
+    pub fn insert(&mut self, leaf: Field) -> Result<u64, NoteError> {
+        if self.is_full() {
+            return Err(NoteError::MerkleTreeError(format!(
+                "Merkle tree full: capacity {} reached",
+                self.capacity()
+            )));
+        }
+
         let index = self.leaves.len() as u64;
         self.leaves.push(leaf);
 
-        // Update tree
         self.nodes[0][index as usize] = leaf;
         let mut current_idx = index as usize;
 
@@ -392,7 +427,7 @@ impl NoteMerkleTree {
             current_idx = parent_idx;
         }
 
-        index
+        Ok(index)
     }
 
     /// Batch insert leaves without computing intermediate nodes during insertion.
@@ -525,15 +560,15 @@ mod tests {
 
     #[test]
     fn test_merkle_tree() {
-        let mut tree = NoteMerkleTree::new(4); // Small tree for testing
+        let mut tree = NoteMerkleTree::new(4).unwrap();
 
         let leaf1 = Field::from(1u64);
         let leaf2 = Field::from(2u64);
 
-        let idx1 = tree.insert(leaf1);
+        let idx1 = tree.insert(leaf1).unwrap();
         let root1 = tree.root();
 
-        let idx2 = tree.insert(leaf2);
+        let idx2 = tree.insert(leaf2).unwrap();
         let root2 = tree.root();
 
         assert_eq!(idx1, 0);
@@ -543,5 +578,29 @@ mod tests {
         // Proof should have correct length
         let proof = tree.proof(0);
         assert_eq!(proof.len(), 4);
+    }
+
+    #[test]
+    fn test_merkle_tree_depth_validation() {
+        // Valid depth should succeed
+        assert!(NoteMerkleTree::new(16).is_ok());
+        assert!(NoteMerkleTree::new(1).is_ok());
+
+        // Invalid depth should fail
+        assert!(NoteMerkleTree::new(17).is_err());
+        assert!(NoteMerkleTree::new(32).is_err());
+    }
+
+    #[test]
+    fn test_merkle_tree_capacity_check() {
+        let mut tree = NoteMerkleTree::new(2).unwrap(); // capacity = 4
+
+        // Should succeed for first 4 inserts
+        for i in 0..4 {
+            assert!(tree.insert(Field::from(i as u64)).is_ok());
+        }
+
+        // 5th insert should fail
+        assert!(tree.insert(Field::from(5u64)).is_err());
     }
 }
