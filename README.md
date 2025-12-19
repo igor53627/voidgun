@@ -1,8 +1,8 @@
-# Voidgun
+# voidgun
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/igor53627/voidgun)
 [![Demo App](https://img.shields.io/badge/Demo-App-84cc16)](https://igor53627.github.io/voidgun/)
-[![Protocol Docs](https://img.shields.io/badge/Docs-Protocol-6366f1)](https://igor53627.github.io/voidgun/protocol-visualization.html)
+[![Visualization](https://img.shields.io/badge/Protocol-Visualization-6366f1)](https://igor53627.github.io/voidgun/protocol-visualization.html)
 
 Privacy-via-proxy architecture for Ethereum using Railgun protocol integration.
 
