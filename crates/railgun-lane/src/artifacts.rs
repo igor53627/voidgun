@@ -108,6 +108,22 @@ impl std::fmt::Debug for CircuitArtifact {
     }
 }
 
+/// Progress callback for download status
+pub type ProgressCallback = Box<dyn Fn(DownloadProgress) + Send + Sync>;
+
+/// Download progress information
+#[derive(Clone, Debug)]
+pub struct DownloadProgress {
+    /// Current file being downloaded
+    pub file: String,
+    /// Bytes downloaded so far
+    pub downloaded: u64,
+    /// Total bytes (if known)
+    pub total: Option<u64>,
+    /// Current phase: "downloading", "decompressing", "complete"
+    pub phase: String,
+}
+
 /// Artifact store with caching
 pub struct ArtifactStore {
     /// Base directory for artifact storage
@@ -116,6 +132,8 @@ pub struct ArtifactStore {
     cache: Arc<RwLock<HashMap<String, CircuitArtifact>>>,
     /// Whether to use native (.dat) or WASM artifacts
     use_native: bool,
+    /// Optional progress callback
+    progress_callback: Option<Arc<ProgressCallback>>,
 }
 
 impl ArtifactStore {
@@ -125,6 +143,33 @@ impl ArtifactStore {
             base_path: base_path.into(),
             cache: Arc::new(RwLock::new(HashMap::new())),
             use_native,
+            progress_callback: None,
+        }
+    }
+
+    /// Create with a progress callback for UI integration
+    pub fn with_progress_callback(
+        base_path: impl Into<PathBuf>,
+        use_native: bool,
+        callback: ProgressCallback,
+    ) -> Self {
+        Self {
+            base_path: base_path.into(),
+            cache: Arc::new(RwLock::new(HashMap::new())),
+            use_native,
+            progress_callback: Some(Arc::new(callback)),
+        }
+    }
+
+    /// Set progress callback
+    pub fn set_progress_callback(&mut self, callback: ProgressCallback) {
+        self.progress_callback = Some(Arc::new(callback));
+    }
+
+    /// Report progress if callback is set
+    fn report_progress(&self, progress: DownloadProgress) {
+        if let Some(ref cb) = self.progress_callback {
+            cb(progress);
         }
     }
 
@@ -153,7 +198,7 @@ impl ArtifactStore {
         }
 
         // Download from IPFS
-        self.download_artifacts(variant).await?;
+        self.download_artifacts_internal(variant).await?;
         let artifact = self.load_from_disk(variant).await?;
 
         let mut cache = self.cache.write().await;
@@ -200,8 +245,31 @@ impl ArtifactStore {
         Ok(CircuitArtifact { wasm, zkey, vkey })
     }
 
-    /// Download artifacts from IPFS
-    async fn download_artifacts(&self, variant: &CircuitVariant) -> Result<(), ArtifactError> {
+    /// Download a specific circuit variant from IPFS
+    ///
+    /// This is useful for pre-downloading variants before they're needed.
+    /// Returns true if the download was performed, false if already exists.
+    pub async fn download_variant(&self, variant: &CircuitVariant) -> Result<bool, ArtifactError> {
+        if self.has_artifacts(variant) {
+            return Ok(false);
+        }
+        self.download_artifacts_internal(variant).await?;
+        Ok(true)
+    }
+
+    /// Download multiple variants sequentially
+    pub async fn download_variants(&self, variants: &[CircuitVariant]) -> Result<usize, ArtifactError> {
+        let mut downloaded = 0;
+        for variant in variants {
+            if self.download_variant(variant).await? {
+                downloaded += 1;
+            }
+        }
+        Ok(downloaded)
+    }
+
+    /// Download artifacts from IPFS (internal)
+    async fn download_artifacts_internal(&self, variant: &CircuitVariant) -> Result<(), ArtifactError> {
         let key = variant.as_string();
         tokio::fs::create_dir_all(&self.base_path).await?;
 
@@ -245,7 +313,13 @@ impl ArtifactStore {
 
         tracing::info!("Downloading: {} -> {}", url, output_path.display());
 
-        // Use reqwest for downloading
+        self.report_progress(DownloadProgress {
+            file: filename.to_string(),
+            downloaded: 0,
+            total: None,
+            phase: "downloading".to_string(),
+        });
+
         let response = reqwest::get(url)
             .await
             .map_err(|e| ArtifactError::DownloadFailed(e.to_string()))?;
@@ -258,13 +332,21 @@ impl ArtifactStore {
             )));
         }
 
+        let total_size = response.content_length();
+
         let bytes = response
             .bytes()
             .await
             .map_err(|e| ArtifactError::DownloadFailed(e.to_string()))?;
 
+        self.report_progress(DownloadProgress {
+            file: filename.to_string(),
+            downloaded: bytes.len() as u64,
+            total: total_size,
+            phase: if is_brotli { "decompressing" } else { "complete" }.to_string(),
+        });
+
         let data = if is_brotli {
-            // Decompress brotli
             let mut decompressed = Vec::new();
             let mut decoder = brotli::Decompressor::new(bytes.as_ref(), 4096);
             std::io::Read::read_to_end(&mut decoder, &mut decompressed)
@@ -275,6 +357,13 @@ impl ArtifactStore {
         };
 
         tokio::fs::write(&output_path, &data).await?;
+
+        self.report_progress(DownloadProgress {
+            file: filename.to_string(),
+            downloaded: data.len() as u64,
+            total: Some(data.len() as u64),
+            phase: "complete".to_string(),
+        });
         tracing::info!("Saved: {} ({} bytes)", output_path.display(), data.len());
 
         Ok(())

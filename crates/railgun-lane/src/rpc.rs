@@ -10,8 +10,8 @@ use ark_ff::PrimeField;
 use thiserror::Error;
 
 use crate::contracts::{
-    Nullifiers, ParsedNullifierEvent, ParsedShieldEvent, ParsedTransactEvent, RailgunAddresses,
-    Shield, Transact,
+    Nullifiers, ParsedNullifierEvent, ParsedShieldCiphertext, ParsedShieldEvent,
+    ParsedShieldPreimage, ParsedTransactEvent, RailgunAddresses, Shield, Transact,
 };
 
 #[derive(Debug, Error)]
@@ -53,6 +53,44 @@ impl RailgunRpcClient {
             addresses,
             chain_id,
         })
+    }
+
+    /// Get current block number via eth_blockNumber
+    pub async fn get_block_number(&self) -> Result<u64, RpcError> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_blockNumber",
+            "params": [],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RpcError::Transport("No result in response".into()))?;
+
+        // Parse hex string (e.g., "0x1234abc")
+        let block_num = u64::from_str_radix(result.trim_start_matches("0x"), 16)
+            .map_err(|e| RpcError::ParseFailed(format!("Invalid block number: {}", e)))?;
+
+        Ok(block_num)
     }
 
     /// Fetch Shield events in a block range
@@ -205,29 +243,53 @@ impl RailgunRpcClient {
         let decoded = Shield::decode_log_data(&log.data())
             .map_err(|e| RpcError::ParseFailed(e.to_string()))?;
 
-        // Compute commitments from preimages
-        let commitments: Vec<Field> = decoded
-            .preimages
+        let mut commitments = Vec::with_capacity(decoded.preimages.len());
+        let mut preimages = Vec::with_capacity(decoded.preimages.len());
+
+        for preimage in &decoded.preimages {
+            let npk = Field::from_be_bytes_mod_order(preimage.npk.as_slice());
+
+            let token_field = if preimage.token.tokenType == 0 {
+                let mut bytes = [0u8; 32];
+                bytes[12..32].copy_from_slice(preimage.token.tokenAddress.as_slice());
+                Field::from_be_bytes_mod_order(&bytes)
+            } else {
+                use sha3::{Digest, Keccak256};
+                let mut data = [0u8; 96];
+                data[31] = preimage.token.tokenType;
+                data[44..64].copy_from_slice(preimage.token.tokenAddress.as_slice());
+                data[64..96].copy_from_slice(&preimage.token.tokenSubID.to_be_bytes::<32>());
+                let hash = Keccak256::digest(&data);
+                Field::from_be_bytes_mod_order(&hash)
+            };
+
+            let value = preimage.value.to::<u128>();
+            let commitment = crate::poseidon::poseidon3(npk, token_field, Field::from(value));
+
+            commitments.push(commitment);
+            preimages.push(ParsedShieldPreimage {
+                npk,
+                token: token_field,
+                token_address: preimage.token.tokenAddress,
+                value,
+            });
+        }
+
+        let ciphertexts: Vec<ParsedShieldCiphertext> = decoded
+            .ciphertexts
             .iter()
-            .map(|preimage| {
-                let npk = Field::from_be_bytes_mod_order(preimage.npk.as_slice());
-                // For ERC20 (tokenType=0), tokenField = address padded to 32 bytes
-                let token_field = if preimage.token.tokenType == 0 {
-                    let mut bytes = [0u8; 32];
-                    bytes[12..32].copy_from_slice(preimage.token.tokenAddress.as_slice());
-                    Field::from_be_bytes_mod_order(&bytes)
-                } else {
-                    // For ERC721/ERC1155: keccak256(abi.encode(tokenType, address, subID)) % SNARK_FIELD
-                    use sha3::{Digest, Keccak256};
-                    let mut data = [0u8; 96];
-                    data[31] = preimage.token.tokenType;
-                    data[44..64].copy_from_slice(preimage.token.tokenAddress.as_slice());
-                    data[64..96].copy_from_slice(&preimage.token.tokenSubID.to_be_bytes::<32>());
-                    let hash = Keccak256::digest(&data);
-                    Field::from_be_bytes_mod_order(&hash)
-                };
-                let value = Field::from(preimage.value.to::<u128>());
-                crate::poseidon::poseidon3(npk, token_field, value)
+            .map(|c| {
+                let mut encrypted_bundle = [[0u8; 32]; 3];
+                for (i, chunk) in c.encryptedBundle.iter().take(3).enumerate() {
+                    encrypted_bundle[i].copy_from_slice(chunk.as_slice());
+                }
+                let mut shield_key = [0u8; 32];
+                shield_key.copy_from_slice(c.shieldKey.as_slice());
+
+                ParsedShieldCiphertext {
+                    encrypted_bundle,
+                    shield_key,
+                }
             })
             .collect();
 
@@ -235,6 +297,8 @@ impl RailgunRpcClient {
             tree_number: decoded.treeNumber.try_into().unwrap_or(0),
             start_position: decoded.startPosition.try_into().unwrap_or(0),
             commitments,
+            ciphertexts,
+            preimages,
             block_number: log.block_number.unwrap_or(0),
             tx_hash: log.transaction_hash.unwrap_or_default(),
         })
@@ -337,6 +401,12 @@ impl EventSyncer {
     /// Get current synced block
     pub fn synced_block(&self) -> u64 {
         self.last_block
+    }
+
+    /// Sync to the latest block
+    pub async fn sync_to_latest(&mut self) -> Result<Vec<RailgunEvent>, RpcError> {
+        let latest_block = self.client.get_block_number().await?;
+        self.sync_to(latest_block).await
     }
 
     /// Sync events and build merkle tree for a specific tree number

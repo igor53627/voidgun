@@ -135,6 +135,9 @@ pub trait PoolLane: Send + Sync {
 
     /// Sync state from on-chain events
     async fn sync(&mut self, from_block: u64) -> Result<u64, LaneError>;
+
+    /// Sync to the latest block (fetches current block number automatically)
+    async fn sync_to_latest(&mut self) -> Result<u64, LaneError>;
 }
 
 /// Railgun lane implementation
@@ -643,96 +646,159 @@ impl PoolLane for RailgunLane {
     }
 
     async fn sync(&mut self, from_block: u64) -> Result<u64, LaneError> {
+        self.sync_to_block(from_block, None).await
+    }
+
+    async fn sync_to_latest(&mut self) -> Result<u64, LaneError> {
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = crate::rpc::RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let latest_block = client
+            .get_block_number()
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        self.sync_to_block(self.last_synced_block, Some(latest_block))
+            .await
+    }
+}
+
+impl RailgunLane {
+    /// Internal sync implementation with optional target block
+    async fn sync_to_block(
+        &mut self,
+        from_block: u64,
+        target_block: Option<u64>,
+    ) -> Result<u64, LaneError> {
         use crate::notes::EncryptedNote;
         use crate::rpc::{RailgunEvent, RailgunRpcClient};
 
         let wallet = self
             .wallet
             .as_ref()
-            .ok_or(LaneError::KeyDerivation("Not initialized".into()))?;
+            .ok_or(LaneError::KeyDerivation("Not initialized".into()))?
+            .clone();
 
         let rpc_url = self
             .rpc_url
             .as_ref()
             .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
 
-        // Create RPC client
         let client = RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
             .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
 
-        // Fetch current block (simplified - in production use eth_blockNumber)
-        // For now, sync up to from_block + 10000 or use a provided target
-        let target_block = from_block + 10000;
+        let target = match target_block {
+            Some(t) => t,
+            None => {
+                client
+                    .get_block_number()
+                    .await
+                    .map_err(|e| LaneError::TransactionFailed(e.to_string()))?
+            }
+        };
 
-        // Fetch all events
-        let events = client
-            .fetch_all_events(from_block, target_block)
-            .await
-            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+        let batch_size = 10_000u64;
+        let mut current_block = from_block;
 
-        // Get viewing secret for trial decryption
-        let viewing_secret = wallet.viewing.secret.as_bytes();
+        while current_block < target {
+            let end_block = (current_block + batch_size).min(target);
 
-        // Process events
-        for event in events {
-            match event {
-                RailgunEvent::Shield(shield_event) => {
-                    // Add commitments to merkle tree
-                    for commitment in &shield_event.commitments {
-                        self.merkle_tree.insert(*commitment);
-                    }
-                    // Note: Shield events don't have encrypted note data for trial decrypt
-                    // The shield ciphertext is different from transact ciphertext
-                }
+            tracing::info!("Syncing blocks {} to {}", current_block, end_block);
 
-                RailgunEvent::Transact(transact_event) => {
-                    // Add new commitments to merkle tree
-                    for commitment in &transact_event.commitment_hashes {
-                        let leaf_index = self.merkle_tree.insert(*commitment);
+            let events = client
+                .fetch_all_events(current_block, end_block)
+                .await
+                .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
 
-                        // Try to decrypt corresponding ciphertext
-                        if let Some(ciphertext_bytes) = transact_event.ciphertexts.get(
-                            transact_event
-                                .commitment_hashes
-                                .iter()
-                                .position(|c| c == commitment)
-                                .unwrap_or(0),
-                        ) {
-                            // Try trial decryption
-                            if let Ok(encrypted_note) = EncryptedNote::from_bytes(ciphertext_bytes)
-                            {
-                                if let Ok(note) = encrypted_note.try_decrypt(viewing_secret) {
-                                    // Verify commitment matches
-                                    if note.commitment() == *commitment {
-                                        tracing::info!(
-                                            "Decrypted note at index {} with value {}",
-                                            leaf_index,
-                                            note.value
-                                        );
-                                        self.notes.push((note, leaf_index));
+            let viewing_secret = wallet.viewing.secret.as_bytes();
+
+            for event in events {
+                match event {
+                    RailgunEvent::Shield(shield_event) => {
+                        for (i, commitment) in shield_event.commitments.iter().enumerate() {
+                            let leaf_index = self.merkle_tree.insert(*commitment);
+
+                            if let (Some(ciphertext), Some(preimage)) = (
+                                shield_event.ciphertexts.get(i),
+                                shield_event.preimages.get(i),
+                            ) {
+                                let shield_ct = crate::notes::ShieldCiphertext::from_parsed(ciphertext);
+                                if let Ok(random_bytes) = shield_ct.try_decrypt(viewing_secret) {
+                                    let random = Field::from_be_bytes_mod_order(&random_bytes);
+                                    let expected_npk = crate::poseidon::poseidon2(
+                                        wallet.master_public_key,
+                                        random,
+                                    );
+
+                                    if expected_npk == preimage.npk {
+                                        let note = RailgunNote {
+                                            npk: preimage.npk,
+                                            value: preimage.value,
+                                            token: preimage.token,
+                                            random,
+                                        };
+
+                                        if note.commitment() == *commitment {
+                                            tracing::info!(
+                                                "Decrypted shield note at index {} with value {}",
+                                                leaf_index,
+                                                note.value
+                                            );
+                                            self.notes.push((note, leaf_index));
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                RailgunEvent::Nullifier(nullifier_event) => {
-                    // Mark notes as spent
-                    for nullifier in &nullifier_event.nullifiers {
-                        self.spent_nullifiers.insert(*nullifier);
+                    RailgunEvent::Transact(transact_event) => {
+                        for (i, commitment) in
+                            transact_event.commitment_hashes.iter().enumerate()
+                        {
+                            let leaf_index = self.merkle_tree.insert(*commitment);
 
-                        // Remove any notes that match this nullifier
-                        self.notes.retain(|(note, _)| {
-                            note.nullifier(wallet.nullifying_key) != *nullifier
-                        });
+                            if let Some(ciphertext_bytes) = transact_event.ciphertexts.get(i) {
+                                if let Ok(encrypted_note) =
+                                    EncryptedNote::from_bytes(ciphertext_bytes)
+                                {
+                                    if let Ok(note) = encrypted_note.try_decrypt(viewing_secret) {
+                                        if note.commitment() == *commitment {
+                                            tracing::info!(
+                                                "Decrypted note at index {} with value {}",
+                                                leaf_index,
+                                                note.value
+                                            );
+                                            self.notes.push((note, leaf_index));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    RailgunEvent::Nullifier(nullifier_event) => {
+                        for nullifier in &nullifier_event.nullifiers {
+                            self.spent_nullifiers.insert(*nullifier);
+
+                            self.notes.retain(|(note, _)| {
+                                note.nullifier(wallet.nullifying_key) != *nullifier
+                            });
+                        }
                     }
                 }
             }
+
+            current_block = end_block + 1;
         }
 
-        self.last_synced_block = target_block;
-        Ok(target_block)
+        self.last_synced_block = target;
+        Ok(target)
     }
 }
 

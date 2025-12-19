@@ -33,8 +33,9 @@ ed25519-dalek = { version = "2", features = ["hazmat"] }
 sha3 = "0.10"
 blake2 = "0.10"
 
-# AEAD encryption (ChaCha20-Poly1305 for note encryption)
+# AEAD encryption (ChaCha20-Poly1305 for note encryption, AES-GCM for shield)
 chacha20poly1305 = "0.10"
+aes-gcm = "0.10"
 
 # X25519 ECDH for shared secret derivation
 x25519-dalek = { version = "2", features = ["static_secrets"] }
@@ -78,8 +79,7 @@ brotli = "7"
 # WASM runtime for witness calculation (required by ark-circom)
 wasmer = "4"
 
-# Internal
-voidgun-core.workspace = true
+
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

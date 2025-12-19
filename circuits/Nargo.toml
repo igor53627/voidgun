@@ -1,9 +1,0 @@
-[package]
-name = "voidgun_circuits"
-type = "lib"
-authors = ["Voidgun Contributors"]
-compiler_version = ">=1.0.0"
-
-[dependencies]
-poseidon = { git = "https://github.com/noir-lang/poseidon", tag = "v0.1.1" }
-keccak256 = { git = "https://github.com/noir-lang/keccak256", tag = "v0.1.1" }

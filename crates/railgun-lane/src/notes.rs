@@ -240,6 +240,83 @@ impl EncryptedNote {
     }
 }
 
+/// Shield ciphertext structure (different from Transact ciphertext)
+///
+/// Shield ciphertext format:
+/// - encryptedBundle[3]: 3 x 32 bytes = 96 bytes of AES-GCM ciphertext
+/// - shieldKey: 32 bytes - sender's random key used for ECDH
+///
+/// The encrypted data contains: random (32 bytes) for deriving NPK
+/// The receiver can decrypt using their viewing key to get the random value,
+/// then reconstruct the note using the public preimage (token, value, npk).
+#[derive(Clone, Debug)]
+pub struct ShieldCiphertext {
+    /// Encrypted bundle (3 x 32 bytes = 96 bytes containing random + padding)
+    pub encrypted_bundle: [[u8; 32]; 3],
+    /// Shield key (sender's ephemeral public key for ECDH)
+    pub shield_key: [u8; 32],
+}
+
+impl ShieldCiphertext {
+    /// Try to decrypt the shield ciphertext using the viewing secret
+    ///
+    /// For shield events, the ciphertext contains the `random` value used
+    /// to derive NPK = Poseidon(masterPublicKey, random).
+    ///
+    /// The receiver needs to:
+    /// 1. ECDH with shieldKey using their viewing private key
+    /// 2. Derive AES key from shared secret
+    /// 3. Decrypt to get the random value
+    /// 4. Use random + their MPK to verify NPK matches
+    pub fn try_decrypt(&self, viewing_secret: &[u8; 32]) -> Result<[u8; 32], NoteError> {
+        use aes_gcm::{aead::Aead as AesAead, Aes256Gcm, KeyInit as AesKeyInit, Nonce as AesNonce};
+
+        let secret = StaticSecret::from(*viewing_secret);
+        let shield_public = PublicKey::from(self.shield_key);
+        let shared_secret = secret.diffie_hellman(&shield_public);
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(b"railgun-shield-v1");
+        hasher.update(shared_secret.as_bytes());
+        hasher.update(&self.shield_key);
+        let key_material = hasher.finalize();
+
+        let mut nonce_hasher = Sha3_256::new();
+        nonce_hasher.update(b"railgun-shield-nonce");
+        nonce_hasher.update(&self.shield_key);
+        let nonce_hash = nonce_hasher.finalize();
+        let nonce = AesNonce::from_slice(&nonce_hash[..12]);
+
+        let cipher = Aes256Gcm::new_from_slice(&key_material)
+            .map_err(|e| NoteError::DecryptionFailed(e.to_string()))?;
+
+        let mut ciphertext_bytes = Vec::with_capacity(96);
+        for chunk in &self.encrypted_bundle {
+            ciphertext_bytes.extend_from_slice(chunk);
+        }
+
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext_bytes.as_slice())
+            .map_err(|_| NoteError::DecryptionFailed("shield decryption failed".into()))?;
+
+        if plaintext.len() < 32 {
+            return Err(NoteError::InvalidNote("decrypted data too short".into()));
+        }
+
+        let mut random = [0u8; 32];
+        random.copy_from_slice(&plaintext[..32]);
+        Ok(random)
+    }
+
+    /// Create from parsed shield ciphertext
+    pub fn from_parsed(parsed: &crate::contracts::ParsedShieldCiphertext) -> Self {
+        Self {
+            encrypted_bundle: parsed.encrypted_bundle,
+            shield_key: parsed.shield_key,
+        }
+    }
+}
+
 /// Railgun's ZERO_VALUE = keccak256("Railgun") % SNARK_SCALAR_FIELD
 /// This is used for empty leaves in the Merkle tree.
 /// From Railgun's PoseidonMerkle.sol:
