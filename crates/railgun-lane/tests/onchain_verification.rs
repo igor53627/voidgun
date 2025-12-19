@@ -14,7 +14,7 @@
 //! TENDERLY_RPC_URL="https://virtual.mainnet.rpc.tenderly.co/..." cargo test -p railgun-lane --test onchain_verification test_e2e -- --ignored --nocapture
 //!
 //! # Option 2: Auto-create synced VNet (requires TENDERLY_* env vars)
-//! cargo test -p railgun-lane --test onchain_verification test_e2e_auto -- --ignored --nocapture
+//! cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture
 //! ```
 //!
 //! ## Tenderly Setup

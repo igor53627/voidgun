@@ -50,7 +50,7 @@ cargo test -p railgun-lane
 cargo test -p railgun-lane --test proof_generation -- --ignored --nocapture
 
 # Test (e2e with Tenderly)
-cargo test -p railgun-lane --test onchain_verification test_e2e_auto -- --ignored --nocapture
+cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture
 ```
 
 ## Testing Preferences
@@ -98,13 +98,13 @@ Transform: x_ark = sqrt(168700) * x_circ
 
 ```
 Note = {
-  npk: Poseidon(nk, leafIndex),   // Note public key
-  token: address,                  // Token contract
-  value: amount,                   // Hidden value
-  random: blinding                 // Randomness
+  npk: Poseidon(mpk, random),      // Note public key (from master public key + random)
+  token: address,                   // Token contract
+  value: amount,                    // Hidden value
+  random: blinding                  // Randomness used in npk derivation
 }
-Commitment = Poseidon(npk, token, value, random)
-Nullifier = Poseidon(nullifyingKey, leafIndex)
+Commitment = Poseidon(npk, token, value)        // 3-input Poseidon
+Nullifier  = Poseidon(nullifyingKey, leafIndex) // Circuit-compatible nullifier
 ```
 
 ## Merkle Tree

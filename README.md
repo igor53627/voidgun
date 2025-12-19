@@ -110,7 +110,7 @@ cargo test -p railgun-lane --test proof_generation -- --ignored --nocapture
 #   export TENDERLY_ACCESS_KEY="your-key"
 #   export TENDERLY_ACCOUNT="your-account"
 #   export TENDERLY_PROJECT="your-project"
-cargo test -p railgun-lane --test onchain_verification test_e2e_auto -- --ignored --nocapture
+cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture
 ```
 
 ## Protocol Visualization
@@ -127,12 +127,13 @@ See [docs/protocol-visualization.html](docs/protocol-visualization.html) for an 
 ### Note Structure
 ```
 Note = {
-  npk: Poseidon(nullifyingKey, leafIndex),  // Note public key
+  npk: Poseidon(mpk, random),   // Note public key (from master public key + random)
   token: tokenAddress,
   value: amount,
   random: randomness
 }
-Commitment = Poseidon(npk, token, value, random)
+Commitment = Poseidon(npk, token, value)   // 3-input Poseidon
+Nullifier  = Poseidon(nullifyingKey, leafIndex)
 ```
 
 ### Merkle Tree

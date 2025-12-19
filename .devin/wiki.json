@@ -2,7 +2,7 @@
   "project": {
     "name": "Voidgun",
     "description": "Privacy-via-proxy architecture for Ethereum using Railgun protocol integration",
-    "version": "0.2.1",
+    "version": "0.1.0",
     "repository": "https://github.com/igor53627/voidgun"
   },
   "architecture": {
@@ -39,7 +39,8 @@
     },
     "note_structure": {
       "fields": ["npk (note public key)", "token", "value", "random"],
-      "commitment": "Poseidon(npk, token, value, random)",
+      "npk_derivation": "npk = Poseidon(masterPublicKey, random)",
+      "commitment": "Poseidon(npk, token, value)",
       "nullifier": "Poseidon(nullifyingKey, leafIndex)"
     },
     "circuit_variants": {
@@ -67,7 +68,7 @@
   "testing": {
     "unit_tests": "cargo test -p railgun-lane",
     "proof_generation": "cargo test -p railgun-lane --test proof_generation -- --ignored",
-    "e2e_tenderly": "cargo test -p railgun-lane --test onchain_verification test_e2e_auto -- --ignored",
+    "e2e_tenderly": "cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture",
     "requires": {
       "tenderly": "TENDERLY_ACCESS_KEY, TENDERLY_ACCOUNT, TENDERLY_PROJECT",
       "mainnet_rpc": "MAINNET_RPC_URL or ETH_RPC_URL for read-only tests"
