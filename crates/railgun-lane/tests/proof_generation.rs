@@ -548,7 +548,7 @@ async fn test_proof_verification() {
 
     println!("Verifying proof locally...");
     let variant = CircuitVariant::new(1, 1).unwrap();
-    let result = prover.verify(&variant, &proof).await;
+    let result = prover.verify_proof(&variant, &proof).await;
 
     match result {
         Ok(valid) => {

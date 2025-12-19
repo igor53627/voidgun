@@ -836,7 +836,25 @@ impl RailgunProver {
         // Generate proof
         let (proof, public_inputs) = self.generate_proof_internal(&variant, inputs).await?;
 
-        RailgunProof::from_proof(&proof, public_inputs)
+        let railgun_proof = RailgunProof::from_proof(&proof, public_inputs)?;
+
+        // Verify proof locally before returning
+        if std::env::var("SKIP_LOCAL_VERIFY").is_err() {
+            match self.verify_proof(&variant, &railgun_proof).await {
+                Ok(true) => {
+                    tracing::info!("Local proof verification passed");
+                }
+                Ok(false) => {
+                    tracing::error!("Local proof verification FAILED - proof is invalid");
+                    return Err(ProverError::VerificationFailed);
+                }
+                Err(e) => {
+                    tracing::warn!("Local proof verification skipped: {}", e);
+                }
+            }
+        }
+
+        Ok(railgun_proof)
     }
 
     /// Generate shield proof
@@ -974,26 +992,88 @@ impl RailgunProver {
         Ok(Proof { a, b, c })
     }
 
-    /// Verify a proof locally (for testing)
+    /// Verify a proof locally using the verification key from VKEY JSON
+    ///
+    /// This loads the verification key from the VKEY JSON file (produced by snarkjs)
+    /// and verifies the proof. This is useful for catching errors before submitting
+    /// proofs to the chain.
+    ///
+    /// Returns Ok(true) if valid, Ok(false) if invalid, Err on parsing errors.
+    pub async fn verify_proof(
+        &self,
+        variant: &CircuitVariant,
+        proof: &RailgunProof,
+    ) -> Result<bool, ProverError> {
+        let vk = self.load_verification_key(variant).await?;
+        let groth16_proof = proof.to_proof()?;
+
+        tracing::debug!(
+            "Verifying proof with {} public inputs using VKEY",
+            proof.public_inputs.len()
+        );
+
+        let pvk = ark_groth16::prepare_verifying_key(&vk);
+        let result =
+            Groth16::<Bn254>::verify_with_processed_vk(&pvk, &proof.public_inputs, &groth16_proof)
+                .map_err(|_| ProverError::VerificationFailed)?;
+
+        Ok(result)
+    }
+
+    /// Load verification key from VKEY JSON file
+    ///
+    /// The VKEY JSON format from snarkjs contains:
+    /// - protocol: "groth16"
+    /// - curve: "bn128"
+    /// - nPublic: number of public inputs
+    /// - vk_alpha_1, vk_beta_2, vk_gamma_2, vk_delta_2: verification key points
+    /// - IC: input commitment points
+    pub async fn load_verification_key(
+        &self,
+        variant: &CircuitVariant,
+    ) -> Result<ark_groth16::VerifyingKey<Bn254>, ProverError> {
+        let artifacts = self.artifact_store.get_artifacts(variant).await?;
+
+        let vk_alpha_1 = parse_g1_point(&artifacts.vkey["vk_alpha_1"])?;
+        let vk_beta_2 = parse_g2_point(&artifacts.vkey["vk_beta_2"])?;
+        let vk_gamma_2 = parse_g2_point(&artifacts.vkey["vk_gamma_2"])?;
+        let vk_delta_2 = parse_g2_point(&artifacts.vkey["vk_delta_2"])?;
+
+        let ic_array = artifacts.vkey["IC"]
+            .as_array()
+            .ok_or_else(|| ProverError::SerializationError("IC is not an array".into()))?;
+
+        let mut gamma_abc_g1 = Vec::with_capacity(ic_array.len());
+        for ic_point in ic_array {
+            gamma_abc_g1.push(parse_g1_point(ic_point)?);
+        }
+
+        Ok(ark_groth16::VerifyingKey {
+            alpha_g1: vk_alpha_1,
+            beta_g2: vk_beta_2,
+            gamma_g2: vk_gamma_2,
+            delta_g2: vk_delta_2,
+            gamma_abc_g1,
+        })
+    }
+
+    /// Verify a proof locally using ZKEY (legacy method)
     ///
     /// # Warning
     ///
     /// Local verification with ark-circom has a known issue (arkworks-rs/circom-compat#35)
     /// where verification fails when using externally-generated ZKEYs (like Railgun's).
-    /// The proofs ARE valid and will verify on-chain with Railgun's Solidity verifier.
-    ///
-    /// Use this method only for debugging. For production, rely on on-chain verification.
-    pub async fn verify(
+    /// Prefer `verify_proof()` which uses the VKEY JSON directly.
+    pub async fn verify_with_zkey(
         &self,
         variant: &CircuitVariant,
         proof: &RailgunProof,
     ) -> Result<bool, ProverError> {
         tracing::warn!(
-            "Local verification may return false negatives due to ark-circom issue #35. \
-             Proofs should be verified on-chain."
+            "verify_with_zkey may return false negatives due to ark-circom issue #35. \
+             Use verify_proof() instead."
         );
 
-        // Load fresh ZKEY to avoid any caching issues
         let artifacts = self.artifact_store.get_artifacts(variant).await?;
         let mut cursor = std::io::Cursor::new(&artifacts.zkey);
         let (pk, _matrices) = read_zkey(&mut cursor)
@@ -1013,6 +1093,90 @@ impl RailgunProver {
 
         Ok(result)
     }
+}
+
+/// Parse G1 point from snarkjs JSON format [x, y, z]
+fn parse_g1_point(value: &serde_json::Value) -> Result<ark_bn254::G1Affine, ProverError> {
+    use ark_bn254::Fq;
+    use std::str::FromStr;
+
+    let arr = value
+        .as_array()
+        .ok_or_else(|| ProverError::SerializationError("G1 point is not an array".into()))?;
+
+    if arr.len() < 2 {
+        return Err(ProverError::SerializationError(
+            "G1 point needs at least 2 elements".into(),
+        ));
+    }
+
+    let x = Fq::from_str(
+        arr[0]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G1.x is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G1.x".into()))?;
+    let y = Fq::from_str(
+        arr[1]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G1.y is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G1.y".into()))?;
+
+    Ok(ark_bn254::G1Affine::new(x, y))
+}
+
+/// Parse G2 point from snarkjs JSON format [[x.c0, x.c1], [y.c0, y.c1], [z.c0, z.c1]]
+fn parse_g2_point(value: &serde_json::Value) -> Result<ark_bn254::G2Affine, ProverError> {
+    use ark_bn254::{Fq, Fq2};
+    use std::str::FromStr;
+
+    let arr = value
+        .as_array()
+        .ok_or_else(|| ProverError::SerializationError("G2 point is not an array".into()))?;
+
+    if arr.len() < 2 {
+        return Err(ProverError::SerializationError(
+            "G2 point needs at least 2 elements".into(),
+        ));
+    }
+
+    let x_arr = arr[0]
+        .as_array()
+        .ok_or_else(|| ProverError::SerializationError("G2.x is not an array".into()))?;
+    let y_arr = arr[1]
+        .as_array()
+        .ok_or_else(|| ProverError::SerializationError("G2.y is not an array".into()))?;
+
+    let x_c0 = Fq::from_str(
+        x_arr[0]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.x.c0 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.x.c0".into()))?;
+    let x_c1 = Fq::from_str(
+        x_arr[1]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.x.c1 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.x.c1".into()))?;
+    let y_c0 = Fq::from_str(
+        y_arr[0]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.y.c0 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.y.c0".into()))?;
+    let y_c1 = Fq::from_str(
+        y_arr[1]
+            .as_str()
+            .ok_or_else(|| ProverError::SerializationError("G2.y.c1 is not a string".into()))?,
+    )
+    .map_err(|_| ProverError::SerializationError("invalid G2.y.c1".into()))?;
+
+    let x = Fq2::new(x_c0, x_c1);
+    let y = Fq2::new(y_c0, y_c1);
+
+    Ok(ark_bn254::G2Affine::new(x, y))
 }
 
 #[cfg(test)]

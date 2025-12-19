@@ -51,7 +51,9 @@ pub mod poseidon;
 pub mod prover;
 pub mod rpc;
 
-pub use artifacts::{ArtifactStore, CircuitArtifact, CircuitVariant};
+pub use artifacts::{
+    ArtifactStore, CircuitArtifact, CircuitVariant, DownloadProgress, ProgressCallback,
+};
 pub use event_loader::{
     append_commitments_to_tree, build_merkle_tree_from_files,
     build_merkle_tree_from_files_with_info, load_shield_events, load_transact_events,
@@ -59,7 +61,7 @@ pub use event_loader::{
 };
 pub use keys::{EddsaSignature, RailgunWallet, SpendingKey, ViewingKey};
 pub use lane::{PoolLane, PoolType, RailgunLane, TransferRequest, TransferResult};
-pub use notes::{EncryptedNote, NoteMerkleTree, RailgunNote};
+pub use notes::{EncryptedNote, NoteMerkleTree, RailgunNote, ShieldCiphertext};
 pub use prover::{CommitmentCiphertextData, RailgunProof, RailgunProver, TransactWitness};
 pub use rpc::{EventSyncer, RailgunEvent, RailgunRpcClient};
 

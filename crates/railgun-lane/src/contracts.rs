@@ -198,6 +198,28 @@ sol! {
     }
 }
 
+/// Shield ciphertext data for trial decryption
+#[derive(Clone, Debug)]
+pub struct ParsedShieldCiphertext {
+    /// Encrypted bundle (3 x 32 bytes)
+    pub encrypted_bundle: [[u8; 32]; 3],
+    /// Shield key (receiver's viewing key derived)
+    pub shield_key: [u8; 32],
+}
+
+/// Shield preimage data (for reconstructing notes)
+#[derive(Clone, Debug)]
+pub struct ParsedShieldPreimage {
+    /// Nullifier public key
+    pub npk: Field,
+    /// Token address (as field)
+    pub token: Field,
+    /// Token address (raw)
+    pub token_address: alloy_primitives::Address,
+    /// Value
+    pub value: u128,
+}
+
 /// Parsed Shield event
 #[derive(Clone, Debug)]
 pub struct ParsedShieldEvent {
@@ -207,6 +229,10 @@ pub struct ParsedShieldEvent {
     pub start_position: u64,
     /// Commitments (as field elements)
     pub commitments: Vec<Field>,
+    /// Shield ciphertexts for trial decryption
+    pub ciphertexts: Vec<ParsedShieldCiphertext>,
+    /// Shield preimages (contains npk, token, value)
+    pub preimages: Vec<ParsedShieldPreimage>,
     /// Block number
     pub block_number: u64,
     /// Transaction hash
@@ -288,14 +314,18 @@ impl EventScanner {
             return Err(ContractError::InvalidEventData("log too short".into()));
         };
 
-        // TODO: Parse commitments array and ciphertexts
-        // For now, return empty commitments
+        // TODO: Parse commitments array and ciphertexts from raw bytes
+        // For now, return empty - the RPC client's parse_shield_log handles this properly
         let commitments = Vec::new();
+        let ciphertexts = Vec::new();
+        let preimages = Vec::new();
 
         Ok(ParsedShieldEvent {
             tree_number,
             start_position,
             commitments,
+            ciphertexts,
+            preimages,
             block_number,
             tx_hash,
         })

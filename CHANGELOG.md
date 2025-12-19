@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **voidgun-core**: Original Voidgun pool core types (replaced by railgun-lane self-contained implementation)
+- **voidgun-prover**: Noir/Barretenberg proving stack (replaced by ark-circom + Railgun IPFS artifacts)
+- **voidgun-contracts**: VoidgunPool Rust bindings (railgun-lane has own contract types)
+- **reth-plugin**: Reth ExEx integration for original Voidgun pool (to be rebuilt for Railgun)
+- **circuits/**: Noir circuit sources for original Voidgun pool
+- **circuits-bin/**: Compiled Noir artifacts for original Voidgun pool
+- **contracts/**: VoidgunPool Solidity contracts and verifiers
+
 ### Added
 - `railgun-lane` crate: Rust implementation of Railgun protocol for privacy pool integration
   - Full EdDSA signature generation compatible with circomlib's Poseidon-based EdDSA
