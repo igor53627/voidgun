@@ -99,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **voidgun-core**: Original Voidgun pool core types (replaced by railgun-lane)
 - **voidgun-prover**: Noir/Barretenberg proving stack (replaced by ark-circom + Railgun artifacts)
 - **voidgun-contracts**: VoidgunPool Rust bindings (railgun-lane has own contract types)
-- **reth-plugin**: Reth ExEx integration for original Voidgun pool
+- **reth-plugin**: Reth ExEx integration (removed - now standalone proxy)
 - **circuits/**: Noir circuit sources for original Voidgun pool
 - **circuits-bin/**: Compiled Noir artifacts
 - **contracts/**: VoidgunPool Solidity contracts and verifiers

@@ -100,7 +100,7 @@
     "refactor_railgun_only": {
       "date": "2024-12-19",
       "description": "Removed original Voidgun pool implementation, kept only Railgun lane",
-      "removed": ["voidgun-core", "voidgun-prover", "voidgun-contracts", "reth-plugin", "circuits/", "contracts/"]
+      "removed": ["voidgun-core", "voidgun-prover", "voidgun-contracts", "circuits/", "contracts/"]
     },
     "eddsa_secret_fix": {
       "date": "2024-12-19",
