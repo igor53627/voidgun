@@ -52,3 +52,10 @@ pub use error::{ProxyError, ProxyResult};
 pub use jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 pub use proxy::RpcProxy;
 pub use server::Server;
+
+// Some native dependencies (e.g., wasmer) expect the standard stack probe
+// symbol to be available during linking. Provide a lightweight definition to
+// avoid toolchain-specific linker errors in test builds.
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+#[no_mangle]
+pub extern "C" fn __rust_probestack() {}
