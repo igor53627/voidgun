@@ -1,5 +1,25 @@
 # Voidgun Project Knowledge
 
+## Codex Cloud
+
+- **Environment ID:** `694b912c4be8819193bc3cb3403ae5a2`
+- **Preferred model:** `gpt-5.2` with `model_reasoning_effort="xhigh"`
+
+```bash
+# Submit task to Codex Cloud
+codex cloud exec --env 694b912c4be8819193bc3cb3403ae5a2 \
+  -c model="gpt-5.2" \
+  -c model_reasoning_effort="xhigh" \
+  --attempts 2 \
+  "Your prompt here"
+
+# Check task status
+codex cloud status <TASK_ID>
+
+# Apply changes locally
+codex cloud apply <TASK_ID>
+```
+
 ## Architecture Overview
 
 Voidgun is a privacy-via-proxy implementation using Railgun protocol integration:
@@ -117,7 +137,8 @@ Nullifier  = Poseidon(nullifyingKey, leafIndex) // Circuit-compatible nullifier
 ## Recent Changes
 
 ### v0.2.0 (2024-12-19)
-- Removed original Voidgun pool (core, prover, contracts, reth-plugin, circuits)
+- Removed original Voidgun pool (core, prover, contracts, circuits)
+- Standalone proxy binary (no reth dependency)
 - Now using Railgun protocol exclusively via `railgun-lane` crate
 - Fixed CVE-2023-42811 (aes-gcm upgrade)
 - Fixed nullifier computation (joinsplit formula)
