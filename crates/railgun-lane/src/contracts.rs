@@ -14,7 +14,7 @@
 //! The contracts are upgradeable proxies.
 
 use alloy_primitives::{Address, FixedBytes, Uint, B256, U256};
-use alloy_sol_types::{sol, SolCall};
+use alloy_sol_types::{sol, SolCall, SolEvent};
 use ark_bn254::Fr as Field;
 use ark_ff::{BigInteger, PrimeField};
 use thiserror::Error;
@@ -286,43 +286,72 @@ impl EventScanner {
     }
 
     /// Parse a Shield event from raw log data
+    ///
+    /// The Shield event includes preimages (npk, token, value), not the commitments directly.
+    /// We compute commitment = Poseidon(npk, tokenField, value) from each preimage.
     pub fn parse_shield_event(
         &self,
         log_data: &[u8],
-        _log_topics: &[B256],
+        log_topics: &[B256],
         block_number: u64,
         tx_hash: B256,
     ) -> Result<ParsedShieldEvent, ContractError> {
-        // Simplified parsing - in production, use alloy's ABI decoding
-        // This is a placeholder showing the structure
+        let decoded = Shield::decode_raw_log(log_topics.iter().copied(), log_data)
+            .map_err(|e| ContractError::DecodingFailed(e.to_string()))?;
 
-        // Parse tree number (first 32 bytes)
-        let tree_number = if log_data.len() >= 32 {
-            let mut bytes = [0u8; 8];
-            bytes.copy_from_slice(&log_data[24..32]);
-            u64::from_be_bytes(bytes)
-        } else {
-            return Err(ContractError::InvalidEventData("log too short".into()));
-        };
+        let mut commitments = Vec::with_capacity(decoded.preimages.len());
+        let mut preimages = Vec::with_capacity(decoded.preimages.len());
 
-        // Parse start position (next 32 bytes)
-        let start_position = if log_data.len() >= 64 {
-            let mut bytes = [0u8; 8];
-            bytes.copy_from_slice(&log_data[56..64]);
-            u64::from_be_bytes(bytes)
-        } else {
-            return Err(ContractError::InvalidEventData("log too short".into()));
-        };
+        for preimage in &decoded.preimages {
+            let npk = Field::from_be_bytes_mod_order(preimage.npk.as_slice());
 
-        // TODO: Parse commitments array and ciphertexts from raw bytes
-        // For now, return empty - the RPC client's parse_shield_log handles this properly
-        let commitments = Vec::new();
-        let ciphertexts = Vec::new();
-        let preimages = Vec::new();
+            let token_field = if preimage.token.tokenType == 0 {
+                let mut bytes = [0u8; 32];
+                bytes[12..32].copy_from_slice(preimage.token.tokenAddress.as_slice());
+                Field::from_be_bytes_mod_order(&bytes)
+            } else {
+                use sha3::{Digest, Keccak256};
+                let mut data = [0u8; 96];
+                data[31] = preimage.token.tokenType;
+                data[44..64].copy_from_slice(preimage.token.tokenAddress.as_slice());
+                data[64..96].copy_from_slice(&preimage.token.tokenSubID.to_be_bytes::<32>());
+                let hash = Keccak256::digest(&data);
+                Field::from_be_bytes_mod_order(&hash)
+            };
+
+            let value = preimage.value.to::<u128>();
+            let commitment = crate::poseidon::poseidon3(npk, token_field, Field::from(value));
+
+            commitments.push(commitment);
+            preimages.push(ParsedShieldPreimage {
+                npk,
+                token: token_field,
+                token_address: preimage.token.tokenAddress,
+                value,
+            });
+        }
+
+        let ciphertexts: Vec<ParsedShieldCiphertext> = decoded
+            .ciphertexts
+            .iter()
+            .map(|c| {
+                let mut encrypted_bundle = [[0u8; 32]; 3];
+                for (i, chunk) in c.encryptedBundle.iter().take(3).enumerate() {
+                    encrypted_bundle[i].copy_from_slice(chunk.as_slice());
+                }
+                let mut shield_key = [0u8; 32];
+                shield_key.copy_from_slice(c.shieldKey.as_slice());
+
+                ParsedShieldCiphertext {
+                    encrypted_bundle,
+                    shield_key,
+                }
+            })
+            .collect();
 
         Ok(ParsedShieldEvent {
-            tree_number,
-            start_position,
+            tree_number: decoded.treeNumber.try_into().unwrap_or(0),
+            start_position: decoded.startPosition.try_into().unwrap_or(0),
             commitments,
             ciphertexts,
             preimages,
@@ -332,27 +361,27 @@ impl EventScanner {
     }
 
     /// Parse a Nullifier event from raw log data
+    ///
+    /// Nullifiers are revealed when notes are spent, allowing the contract to
+    /// prevent double-spending.
     pub fn parse_nullifier_event(
         &self,
         log_data: &[u8],
-        _log_topics: &[B256],
+        log_topics: &[B256],
         block_number: u64,
         tx_hash: B256,
     ) -> Result<ParsedNullifierEvent, ContractError> {
-        // Parse tree number (first 32 bytes)
-        let tree_number = if log_data.len() >= 32 {
-            let mut bytes = [0u8; 8];
-            bytes.copy_from_slice(&log_data[24..32]);
-            u64::from_be_bytes(bytes)
-        } else {
-            return Err(ContractError::InvalidEventData("log too short".into()));
-        };
+        let decoded = Nullifiers::decode_raw_log(log_topics.iter().copied(), log_data)
+            .map_err(|e| ContractError::DecodingFailed(e.to_string()))?;
 
-        // TODO: Parse nullifiers array
-        let nullifiers = Vec::new();
+        let nullifiers: Vec<Field> = decoded
+            .nullifiers
+            .iter()
+            .map(|n| Field::from_be_bytes_mod_order(n.as_slice()))
+            .collect();
 
         Ok(ParsedNullifierEvent {
-            tree_number,
+            tree_number: decoded.treeNumber.try_into().unwrap_or(0),
             nullifiers,
             block_number,
             tx_hash,

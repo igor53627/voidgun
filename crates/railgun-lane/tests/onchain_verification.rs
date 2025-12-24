@@ -45,7 +45,7 @@ use railgun_lane::{
 };
 use std::sync::Arc;
 
-use common::{setup_prover, setup_wallet, compute_message_hash, ARTIFACTS_PATH};
+use common::{compute_message_hash, setup_prover, setup_wallet, ARTIFACTS_PATH};
 
 // Railgun contract addresses
 // The Relay contract (0xfa7093...) has getVerificationKey, SmartWallet doesn't
@@ -1253,7 +1253,8 @@ async fn run_e2e_shield_and_verify(rpc_url: &str) {
                                     railgun_lane::append_commitments_to_tree(
                                         &mut tree,
                                         &new_commitments,
-                                    ).expect("append commitments failed");
+                                    )
+                                    .expect("append commitments failed");
                                     println!(
                                         "  [OK] Tree now has {} leaves after RPC sync",
                                         tree.leaves.len()
@@ -1330,7 +1331,8 @@ async fn run_e2e_shield_and_verify(rpc_url: &str) {
             "  Inserting our commitment at position {}",
             tree.leaves.len()
         );
-        tree.insert(onchain_commitment_field).expect("tree insert failed");
+        tree.insert(onchain_commitment_field)
+            .expect("tree insert failed");
         println!("  Tree leaves after insert: {}", tree.leaves.len());
     } else {
         println!(

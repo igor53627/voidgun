@@ -66,6 +66,7 @@ bech32 = "0.11"
 # Utilities
 once_cell.workspace = true
 rand = "0.8"
+dirs = "6"
 num-bigint = { version = "0.4", features = ["rand"] }
 num-traits = "0.2"
 rayon = "1"
@@ -73,8 +74,12 @@ rayon = "1"
 # HTTP client for artifact downloads
 reqwest = { version = "0.12", features = ["rustls-tls", "stream"], default-features = false }
 
+# WebSocket client for real-time event streaming
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+
 # Streaming
 futures = "0.3"
+futures-util = "0.3"
 
 # Brotli decompression for artifacts
 brotli = "7"

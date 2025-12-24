@@ -679,7 +679,10 @@ impl RailgunProver {
                 failed_constraints
             );
         } else {
-            tracing::info!("[PROVER] R1CS constraint satisfaction check PASSED ({} constraints)", matrices.num_constraints);
+            tracing::info!(
+                "[PROVER] R1CS constraint satisfaction check PASSED ({} constraints)",
+                matrices.num_constraints
+            );
         }
 
         // Extract public inputs (first num_instance_variables elements, excluding w_0=1)
@@ -700,8 +703,7 @@ impl RailgunProver {
             tracing::debug!("Exporting {} witness elements for snarkjs", original_len);
             let witness_wtns = self.export_witness_to_wtns(original_assignment)?;
             let witness_path = "/tmp/railgun_witness.wtns";
-            std::fs::write(witness_path, &witness_wtns)
-                .map_err(|e| ProverError::IoError(e))?;
+            std::fs::write(witness_path, &witness_wtns).map_err(|e| ProverError::IoError(e))?;
 
             // Get ZKEY path
             let zkey_path = self.artifact_store.zkey_path(variant);
@@ -719,7 +721,9 @@ impl RailgunProver {
                     public_path,
                 ])
                 .output()
-                .map_err(|e| ProverError::ProofGenerationFailed(format!("snarkjs failed: {}", e)))?;
+                .map_err(|e| {
+                    ProverError::ProofGenerationFailed(format!("snarkjs failed: {}", e))
+                })?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -735,9 +739,12 @@ impl RailgunProver {
 
             tracing::debug!(
                 "snarkjs proof parsed: a=({}, {}), b.x=({}, {}), b.y=({}, {})",
-                proof.a.x, proof.a.y,
-                proof.b.x.c0, proof.b.x.c1,
-                proof.b.y.c0, proof.b.y.c1
+                proof.a.x,
+                proof.a.y,
+                proof.b.x.c0,
+                proof.b.x.c1,
+                proof.b.y.c0,
+                proof.b.y.c1
             );
 
             return Ok((proof, public_inputs));
@@ -910,13 +917,22 @@ impl RailgunProver {
             let inputs_json: serde_json::Map<String, serde_json::Value> = inputs
                 .iter()
                 .map(|(k, v)| {
-                    let vals: Vec<serde_json::Value> = v.iter()
+                    let vals: Vec<serde_json::Value> = v
+                        .iter()
                         .map(|b| serde_json::Value::String(b.to_string()))
                         .collect();
-                    (k.clone(), if vals.len() == 1 { vals[0].clone() } else { serde_json::Value::Array(vals) })
+                    (
+                        k.clone(),
+                        if vals.len() == 1 {
+                            vals[0].clone()
+                        } else {
+                            serde_json::Value::Array(vals)
+                        },
+                    )
                 })
                 .collect();
-            let json = serde_json::to_string_pretty(&serde_json::Value::Object(inputs_json)).unwrap();
+            let json =
+                serde_json::to_string_pretty(&serde_json::Value::Object(inputs_json)).unwrap();
             std::fs::write("/tmp/railgun_inputs.json", &json).unwrap();
             tracing::debug!("Dumped circuit inputs to /tmp/railgun_inputs.json");
         }
@@ -1040,8 +1056,8 @@ impl RailgunProver {
         use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
         use std::str::FromStr;
 
-        let proof_json = std::fs::read_to_string(proof_path)
-            .map_err(|e| ProverError::IoError(e))?;
+        let proof_json =
+            std::fs::read_to_string(proof_path).map_err(|e| ProverError::IoError(e))?;
 
         let proof_data: serde_json::Value = serde_json::from_str(&proof_json)
             .map_err(|e| ProverError::SerializationError(e.to_string()))?;
