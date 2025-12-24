@@ -1,0 +1,32 @@
+name: Telegram PR Notification
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+          
+          MESSAGE="[NEW PR] voidgun
+
+*${PR_TITLE}*
+
+Branch: \`${PR_BRANCH}\`
+Author: ${PR_AUTHOR}
+${PR_URL}"
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            -d text="${MESSAGE}"
