@@ -37,6 +37,79 @@ pub enum RailgunEvent {
     Nullifier(ParsedNullifierEvent),
 }
 
+/// Transaction receipt from eth_getTransactionReceipt
+#[derive(Clone, Debug)]
+pub struct TransactionReceipt {
+    /// Transaction status (true = success, false = revert)
+    pub status: bool,
+    /// Block number (None if pending)
+    pub block_number: Option<u64>,
+    /// Gas used
+    pub gas_used: u64,
+    /// Transaction hash
+    pub tx_hash: B256,
+}
+
+/// ERC20 token metadata
+#[derive(Clone, Debug, Default)]
+pub struct TokenMetadata {
+    /// Token symbol (e.g., "USDC", "WETH")
+    pub symbol: String,
+    /// Token name (e.g., "USD Coin", "Wrapped Ether")
+    pub name: String,
+    /// Token decimals (usually 18, but 6 for USDC/USDT)
+    pub decimals: u8,
+    /// Optional USD price per token
+    pub usd_price: Option<f64>,
+}
+
+impl TokenMetadata {
+    /// Native ETH metadata
+    pub fn eth() -> Self {
+        Self {
+            symbol: "ETH".into(),
+            name: "Ether".into(),
+            decimals: 18,
+            usd_price: None,
+        }
+    }
+
+    /// Format a raw balance with proper decimal places
+    pub fn format_balance(&self, raw_balance: alloy_primitives::U256) -> String {
+        if self.decimals == 0 {
+            return raw_balance.to_string();
+        }
+
+        let divisor =
+            alloy_primitives::U256::from(10u64).pow(alloy_primitives::U256::from(self.decimals));
+        let whole = raw_balance / divisor;
+        let remainder = raw_balance % divisor;
+
+        if remainder.is_zero() {
+            whole.to_string()
+        } else {
+            let remainder_str = format!("{:0>width$}", remainder, width = self.decimals as usize);
+            let trimmed = remainder_str.trim_end_matches('0');
+            format!("{}.{}", whole, trimmed)
+        }
+    }
+
+    /// Calculate USD value of a raw balance
+    pub fn usd_value(&self, raw_balance: alloy_primitives::U256) -> Option<f64> {
+        let price = self.usd_price?;
+        let balance_f64 = self.balance_as_f64(raw_balance);
+        Some(balance_f64 * price)
+    }
+
+    /// Convert raw balance to f64 (for calculations)
+    pub fn balance_as_f64(&self, raw_balance: alloy_primitives::U256) -> f64 {
+        let divisor = 10f64.powi(self.decimals as i32);
+        let balance_str = raw_balance.to_string();
+        let balance_f64: f64 = balance_str.parse().unwrap_or(f64::MAX);
+        balance_f64 / divisor
+    }
+}
+
 /// RPC client for Railgun event fetching
 pub struct RailgunRpcClient {
     /// RPC endpoint URL
@@ -94,6 +167,443 @@ impl RailgunRpcClient {
             .map_err(|e| RpcError::ParseFailed(format!("Invalid block number: {}", e)))?;
 
         Ok(block_num)
+    }
+
+    /// Get current gas price via eth_gasPrice
+    pub async fn get_gas_price(&self) -> Result<u128, RpcError> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_gasPrice",
+            "params": [],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RpcError::Transport("No result in response".into()))?;
+
+        let gas_price = u128::from_str_radix(result.trim_start_matches("0x"), 16)
+            .map_err(|e| RpcError::ParseFailed(format!("Invalid gas price: {}", e)))?;
+
+        Ok(gas_price)
+    }
+
+    /// Estimate gas for a transaction via eth_estimateGas
+    ///
+    /// # Arguments
+    /// * `from` - Sender address
+    /// * `to` - Contract address
+    /// * `data` - Calldata (hex encoded with 0x prefix or raw bytes)
+    /// * `value` - Value in wei (optional)
+    pub async fn estimate_gas(
+        &self,
+        from: Address,
+        to: Address,
+        data: &[u8],
+        value: Option<alloy_primitives::U256>,
+    ) -> Result<u64, RpcError> {
+        use alloy_primitives::hex;
+
+        let mut tx_obj = serde_json::json!({
+            "from": format!("{:?}", from),
+            "to": format!("{:?}", to),
+            "data": format!("0x{}", hex::encode(data)),
+        });
+
+        if let Some(val) = value {
+            tx_obj["value"] = serde_json::Value::String(format!("0x{:x}", val));
+        }
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_estimateGas",
+            "params": [tx_obj],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RpcError::Transport("No result in response".into()))?;
+
+        let gas = u64::from_str_radix(result.trim_start_matches("0x"), 16)
+            .map_err(|e| RpcError::ParseFailed(format!("Invalid gas estimate: {}", e)))?;
+
+        Ok(gas)
+    }
+
+    /// Get transaction count (nonce) for an address via eth_getTransactionCount
+    pub async fn get_transaction_count(&self, address: Address) -> Result<u64, RpcError> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionCount",
+            "params": [format!("{:?}", address), "pending"],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RpcError::Transport("No result in response".into()))?;
+
+        let nonce = u64::from_str_radix(result.trim_start_matches("0x"), 16)
+            .map_err(|e| RpcError::ParseFailed(format!("Invalid nonce: {}", e)))?;
+
+        Ok(nonce)
+    }
+
+    /// Get max priority fee per gas via eth_maxPriorityFeePerGas (EIP-1559)
+    pub async fn get_max_priority_fee(&self) -> Result<u128, RpcError> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_maxPriorityFeePerGas",
+            "params": [],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RpcError::Transport("No result in response".into()))?;
+
+        let fee = u128::from_str_radix(result.trim_start_matches("0x"), 16)
+            .map_err(|e| RpcError::ParseFailed(format!("Invalid priority fee: {}", e)))?;
+
+        Ok(fee)
+    }
+
+    /// Send raw transaction via eth_sendRawTransaction
+    ///
+    /// Returns the transaction hash.
+    pub async fn send_raw_transaction(&self, signed_tx: &[u8]) -> Result<B256, RpcError> {
+        use alloy_primitives::hex;
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_sendRawTransaction",
+            "params": [format!("0x{}", hex::encode(signed_tx))],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RpcError::Transport("No result in response".into()))?;
+
+        // Parse 0x-prefixed hex hash
+        let hash_bytes = hex::decode(result.trim_start_matches("0x"))
+            .map_err(|e| RpcError::ParseFailed(format!("Invalid tx hash: {}", e)))?;
+
+        if hash_bytes.len() != 32 {
+            return Err(RpcError::ParseFailed("Invalid tx hash length".into()));
+        }
+
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&hash_bytes);
+        Ok(B256::from(hash))
+    }
+
+    /// Get transaction receipt via eth_getTransactionReceipt
+    ///
+    /// Returns None if transaction is still pending.
+    pub async fn get_transaction_receipt(
+        &self,
+        tx_hash: B256,
+    ) -> Result<Option<TransactionReceipt>, RpcError> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionReceipt",
+            "params": [format!("{:?}", tx_hash)],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json.get("result");
+        if result.is_none() || result == Some(&serde_json::Value::Null) {
+            return Ok(None);
+        }
+
+        let result = result.unwrap();
+
+        // Parse receipt fields
+        let status = result
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(|s| s == "0x1")
+            .unwrap_or(false);
+
+        let block_number = result
+            .get("blockNumber")
+            .and_then(|v| v.as_str())
+            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok());
+
+        let gas_used = result
+            .get("gasUsed")
+            .and_then(|v| v.as_str())
+            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(0);
+
+        Ok(Some(TransactionReceipt {
+            status,
+            block_number,
+            gas_used,
+            tx_hash,
+        }))
+    }
+
+    /// Wait for transaction confirmation
+    ///
+    /// Polls eth_getTransactionReceipt until the transaction is confirmed.
+    /// Returns the receipt on success, or error on timeout/failure.
+    pub async fn wait_for_confirmation(
+        &self,
+        tx_hash: B256,
+        timeout_secs: u64,
+    ) -> Result<TransactionReceipt, RpcError> {
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(timeout_secs);
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(RpcError::Transport(format!(
+                    "Transaction confirmation timeout after {}s",
+                    timeout_secs
+                )));
+            }
+
+            match self.get_transaction_receipt(tx_hash).await? {
+                Some(receipt) => return Ok(receipt),
+                None => {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+        }
+    }
+
+    /// Fetch ERC20 token metadata (symbol, name, decimals)
+    ///
+    /// Returns default metadata if calls fail (non-standard tokens).
+    pub async fn get_token_metadata(&self, token: Address) -> Result<TokenMetadata, RpcError> {
+        use alloy_primitives::hex;
+
+        // Zero address = native ETH
+        if token.is_zero() {
+            return Ok(TokenMetadata::eth());
+        }
+
+        // ERC20 function selectors
+        // symbol(): 0x95d89b41
+        // name(): 0x06fdde03
+        // decimals(): 0x313ce567
+        let symbol_selector = hex::decode("95d89b41").unwrap();
+        let name_selector = hex::decode("06fdde03").unwrap();
+        let decimals_selector = hex::decode("313ce567").unwrap();
+
+        let symbol = self
+            .eth_call(token, &symbol_selector)
+            .await
+            .ok()
+            .and_then(|data| decode_string_or_bytes32(&data))
+            .unwrap_or_else(|| "???".into());
+
+        let name = self
+            .eth_call(token, &name_selector)
+            .await
+            .ok()
+            .and_then(|data| decode_string_or_bytes32(&data))
+            .unwrap_or_else(|| "Unknown Token".into());
+
+        let decimals = self
+            .eth_call(token, &decimals_selector)
+            .await
+            .ok()
+            .and_then(|data| {
+                if data.len() >= 32 {
+                    Some(data[31])
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(18);
+
+        Ok(TokenMetadata {
+            symbol,
+            name,
+            decimals,
+            usd_price: None,
+        })
+    }
+
+    /// Fetch USD price for a token via CoinGecko API (free, no API key)
+    ///
+    /// Returns None if price lookup fails (unknown token, rate limited, etc.)
+    pub async fn get_token_price(&self, token: Address) -> Option<f64> {
+        // CoinGecko uses Ethereum contract addresses for price lookup
+        // API: /simple/token_price/ethereum?contract_addresses=...&vs_currencies=usd
+        let url = format!(
+            "https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses={:?}&vs_currencies=usd",
+            token
+        );
+
+        let client = reqwest::Client::new();
+        let response = client.get(&url).send().await.ok()?;
+        let json: serde_json::Value = response.json().await.ok()?;
+
+        // Response format: { "0x...": { "usd": 1.23 } }
+        let addr_key = format!("{:?}", token).to_lowercase();
+        json.get(&addr_key)?.get("usd")?.as_f64()
+    }
+
+    /// Fetch token metadata with USD price
+    pub async fn get_token_metadata_with_price(
+        &self,
+        token: Address,
+    ) -> Result<TokenMetadata, RpcError> {
+        let mut metadata = self.get_token_metadata(token).await?;
+        metadata.usd_price = self.get_token_price(token).await;
+        Ok(metadata)
+    }
+
+    /// Make an eth_call to a contract
+    async fn eth_call(&self, to: Address, data: &[u8]) -> Result<Vec<u8>, RpcError> {
+        use alloy_primitives::hex;
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": format!("{:?}", to),
+                "data": format!("0x{}", hex::encode(data)),
+            }, "latest"],
+            "id": 1,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.rpc_url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| RpcError::Transport(e.to_string()))?;
+
+        if let Some(error) = json.get("error") {
+            return Err(RpcError::Transport(error.to_string()));
+        }
+
+        let result = json
+            .get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RpcError::Transport("No result in response".into()))?;
+
+        hex::decode(result.trim_start_matches("0x"))
+            .map_err(|e| RpcError::ParseFailed(format!("Invalid hex: {}", e)))
     }
 
     /// Fetch Shield events in a block range
@@ -485,6 +995,39 @@ fn field_to_bytes(f: &Field) -> [u8; 32] {
     bytes
 }
 
+fn decode_string_or_bytes32(data: &[u8]) -> Option<String> {
+    if data.len() < 32 {
+        return None;
+    }
+
+    // Check if it's an ABI-encoded dynamic string
+    // First 32 bytes are the offset (usually 0x20 = 32)
+    // Next 32 bytes are the length
+    // Following bytes are the string data
+    if data.len() >= 64 {
+        let offset = u64::from_be_bytes(data[24..32].try_into().ok()?);
+        if offset == 32 && data.len() >= 96 {
+            let length = u64::from_be_bytes(data[56..64].try_into().ok()?) as usize;
+            if length <= data.len() - 64 {
+                let s = String::from_utf8_lossy(&data[64..64 + length]);
+                let trimmed = s.trim_end_matches('\0').to_string();
+                if !trimmed.is_empty() {
+                    return Some(trimmed);
+                }
+            }
+        }
+    }
+
+    // Fallback: treat as bytes32 (e.g., MKR uses this)
+    let s = String::from_utf8_lossy(&data[..32]);
+    let trimmed = s.trim_end_matches('\0').to_string();
+    if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
+        return Some(trimmed);
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,5 +1046,73 @@ mod tests {
         let client = RailgunRpcClient::new("https://eth.llamarpc.com", 1).unwrap();
         let syncer = EventSyncer::new(client, 18_000_000);
         assert_eq!(syncer.synced_block(), 18_000_000);
+    }
+
+    #[test]
+    fn test_token_metadata_eth() {
+        let meta = TokenMetadata::eth();
+        assert_eq!(meta.symbol, "ETH");
+        assert_eq!(meta.decimals, 18);
+        assert!(meta.usd_price.is_none());
+    }
+
+    #[test]
+    fn test_token_metadata_format_balance() {
+        let meta = TokenMetadata {
+            symbol: "USDC".into(),
+            name: "USD Coin".into(),
+            decimals: 6,
+            usd_price: Some(1.0),
+        };
+
+        // 1.5 USDC = 1_500_000 raw
+        let raw = alloy_primitives::U256::from(1_500_000u64);
+        assert_eq!(meta.format_balance(raw), "1.5");
+
+        // 1 USDC exactly
+        let raw = alloy_primitives::U256::from(1_000_000u64);
+        assert_eq!(meta.format_balance(raw), "1");
+
+        // 0.000001 USDC
+        let raw = alloy_primitives::U256::from(1u64);
+        assert_eq!(meta.format_balance(raw), "0.000001");
+    }
+
+    #[test]
+    fn test_token_metadata_usd_value() {
+        let meta = TokenMetadata {
+            symbol: "ETH".into(),
+            name: "Ether".into(),
+            decimals: 18,
+            usd_price: Some(2000.0),
+        };
+
+        // 1 ETH = 2000 USD
+        let one_eth = alloy_primitives::U256::from(1_000_000_000_000_000_000u128);
+        let usd = meta.usd_value(one_eth).unwrap();
+        assert!((usd - 2000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_decode_string_or_bytes32_abi() {
+        // ABI-encoded "USDC" string
+        // offset (32) + length (4) + "USDC" padded
+        let mut data = vec![0u8; 96];
+        data[31] = 32; // offset = 32
+        data[63] = 4; // length = 4
+        data[64..68].copy_from_slice(b"USDC");
+
+        let result = decode_string_or_bytes32(&data);
+        assert_eq!(result, Some("USDC".into()));
+    }
+
+    #[test]
+    fn test_decode_string_or_bytes32_bytes32() {
+        // bytes32 "MKR\0\0\0..." (like MakerDAO uses)
+        let mut data = [0u8; 32];
+        data[0..3].copy_from_slice(b"MKR");
+
+        let result = decode_string_or_bytes32(&data);
+        assert_eq!(result, Some("MKR".into()));
     }
 }

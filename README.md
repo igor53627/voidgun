@@ -68,24 +68,134 @@ Voidgun provides privacy pool access through a proxy model where:
 
 ```
 crates/
-└── railgun-lane/          # Complete Railgun protocol implementation
-    ├── artifacts.rs       # Circuit artifact management (IPFS download)
-    ├── bip32.rs          # BIP32 key derivation for Baby Jubjub
-    ├── contracts.rs      # Railgun contract ABIs and addresses
-    ├── event_loader.rs   # Shield/Transact event parsing
-    ├── keys.rs           # EdDSA keys (SpendingKey, ViewingKey)
-    ├── lane.rs           # PoolLane trait implementation
-    ├── notes.rs          # Note encryption/decryption
-    ├── poseidon.rs       # Circomlib-compatible Poseidon hash
-    ├── prover.rs         # Groth16 proof generation/verification
-    └── rpc.rs            # Ethereum RPC client
+├── railgun-lane/          # Complete Railgun protocol implementation
+│   ├── artifacts.rs       # Circuit artifact management (IPFS download)
+│   ├── bip32.rs          # BIP32 key derivation for Baby Jubjub
+│   ├── contracts.rs      # Railgun contract ABIs and addresses
+│   ├── event_loader.rs   # Shield/Transact event parsing
+│   ├── keys.rs           # EdDSA keys (SpendingKey, ViewingKey)
+│   ├── lane.rs           # PoolLane trait implementation
+│   ├── notes.rs          # Note encryption/decryption
+│   ├── poseidon.rs       # Circomlib-compatible Poseidon hash
+│   ├── prover.rs         # Groth16 proof generation/verification
+│   └── rpc.rs            # Ethereum RPC client
+└── voidgun-proxy/         # RPC proxy server for privacy-via-proxy
+    ├── main.rs            # CLI entry point
+    ├── server.rs          # Axum HTTP/WebSocket server
+    ├── proxy.rs           # JSON-RPC routing and dispatch
+    ├── methods.rs         # Custom voidgun_* and eth_* handlers
+    ├── context.rs         # Per-user wallet context management
+    ├── db.rs              # SQLite persistence
+    ├── jsonrpc.rs         # JSON-RPC request/response types
+    └── error.rs           # Error handling
 ```
+
+## Supported Chains
+
+| Chain | Chain ID | Relay Contract | Status |
+|-------|----------|----------------|--------|
+| Ethereum Mainnet | 1 | `0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9` | Production |
+| Polygon | 137 | `0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9` | Production |
+| Sepolia Testnet | 11155111 | `0x464a0c9e62534b3b160c35638DD7d5cf761f429e` | Testing |
+
+## Quick Start
+
+```rust
+use railgun_lane::{RailgunLane, RailgunWallet, PoolLane};
+use alloy_primitives::Address;
+
+#[tokio::main]
+async fn main() {
+    // 1. Create lane with RPC
+    let contract: Address = "0xfa7093cdd9ee6932b4eb2c9e1cde7ce00b1fa4b9".parse().unwrap();
+    let mut lane = RailgunLane::with_rpc(
+        1, // Ethereum mainnet
+        contract,
+        "./artifacts",
+        "https://eth.llamarpc.com"
+    );
+
+    // 2. Initialize with wallet signature (from MetaMask, etc.)
+    let signature = [0u8; 65]; // Your ECDSA signature
+    lane.init(&signature).await.unwrap();
+
+    // 3. Get your 0zk receiving address
+    let address = lane.receiving_address().unwrap();
+    println!("Send funds to: {}", address); // 0zk1...
+
+    // 4. Sync on-chain state
+    lane.sync_to_latest().await.unwrap();
+
+    // 5. Check balances
+    let balances = lane.get_all_balances().await.unwrap();
+    for b in balances {
+        println!("{}: {} ({} notes)", b.token, b.balance, b.note_count);
+    }
+}
+```
+
+## RPC Proxy Server
+
+The `voidgun-proxy` crate provides a privacy-via-proxy RPC server that sits between your wallet and the Ethereum network. It intercepts JSON-RPC calls and routes privacy-related operations through the Railgun pool.
+
+### Usage
+
+```bash
+# Start the proxy server
+voidgun-proxy --upstream https://eth.llamarpc.com --chain-id 1 --port 8545 --db voidgun.db
+
+# Or with environment variables (precedence: UPSTREAM_RPC_URL > ETH_RPC_URL > MAINNET_RPC_URL)
+UPSTREAM_RPC_URL=https://eth.llamarpc.com voidgun-proxy --chain-id 1
+```
+
+Wallet state is persisted to SQLite and restored on restart.
+
+### Wallet Setup
+
+Configure your wallet (MetaMask, Rainbow, etc.) to use the proxy:
+- Network RPC URL: `http://localhost:8545`
+- Chain ID: Same as upstream (e.g., 1 for mainnet)
+
+On first transaction, the proxy will request a signature to derive your privacy keys.
+
+### Custom Methods
+
+| Method | Description |
+|--------|-------------|
+| `voidgun_init` | Initialize privacy wallet with signature |
+| `voidgun_shieldedBalance` | Get shielded balance for a token |
+| `voidgun_allBalances` | Get all shielded balances |
+| `voidgun_sync` | Sync wallet state from chain |
+| `voidgun_unshield` | Withdraw tokens to public address |
+| `voidgun_address` | Get 0zk receiving address |
+
+### Intercepted Methods
+
+The proxy intercepts standard Ethereum methods to provide seamless privacy:
+
+- **`eth_getBalance`** - For initialized privacy wallets, returns shielded ETH balance (Railgun pool). Non-initialized wallets see their public L1 balance.
+- **`eth_sendTransaction`** - For initialized wallets, simple ETH transfers (nonzero `value`, no `data`) are executed as unshield operations. Contract calls are forwarded unchanged.
+- **`personal_sign`** - When called with the Railgun domain message, uses the signature to derive privacy keys and initialize the wallet. Other signatures are forwarded unchanged.
+
+All other methods are forwarded to the upstream RPC unchanged.
+
+### Endpoints
+
+- `POST /` - JSON-RPC over HTTP
+- `GET /` - JSON-RPC over WebSocket
+- `GET /health` - Health check (returns `200 OK`)
 
 ## Building
 
 ```bash
 # Build the Rust crate
 cargo build -p railgun-lane --release
+
+# Build proxy server
+cargo build -p voidgun-proxy --release
+
+# Run proxy
+cargo run -p voidgun-proxy -- --upstream https://eth.llamarpc.com --chain-id 1
 
 # Run tests
 cargo test -p railgun-lane
@@ -96,12 +206,20 @@ cargo test -p railgun-lane
 ### Unit Tests
 ```bash
 cargo test -p railgun-lane
+cargo test -p voidgun-proxy
 ```
 
 ### Proof Generation (requires circuit artifacts)
 ```bash
 # Downloads artifacts from IPFS automatically
 cargo test -p railgun-lane --test proof_generation -- --ignored --nocapture
+```
+
+### Sepolia Testnet
+```bash
+# Test against Sepolia Railgun contracts
+SEPOLIA_RPC_URL="https://sepolia.infura.io/v3/YOUR_KEY" \
+  cargo test -p railgun-lane --test sepolia_integration -- --ignored --nocapture
 ```
 
 ### End-to-End with Tenderly

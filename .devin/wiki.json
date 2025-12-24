@@ -2,14 +2,25 @@
   "project": {
     "name": "Voidgun",
     "description": "Privacy-via-proxy architecture for Ethereum using Railgun protocol integration",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "repository": "https://github.com/igor53627/voidgun"
   },
   "architecture": {
     "overview": "Voidgun provides privacy pool access through Railgun's battle-tested Groth16 circuits. Keys are derived deterministically from wallet signatures, enabling privacy without new seed phrases.",
     "crates": {
-      "railgun-lane": "Complete Railgun protocol implementation - EdDSA signatures, Groth16 proofs, Merkle sync, note encryption"
+      "railgun-lane": "Complete Railgun protocol implementation - EdDSA signatures, Groth16 proofs, Merkle sync, note encryption",
+      "voidgun-proxy": "RPC proxy server for privacy-via-proxy - intercepts wallet RPC calls and routes through Railgun"
     }
+  },
+  "voidgun_proxy_modules": {
+    "main": "CLI entry point with --upstream, --chain-id, --port, --db flags",
+    "server": "Axum HTTP/WebSocket server with JSON-RPC endpoint and /health check",
+    "proxy": "Core RPC routing - dispatches to handlers or forwards upstream",
+    "methods": "Custom voidgun_* methods and intercepted eth_* methods",
+    "context": "UserContextStore for per-wallet RailgunLane instances",
+    "db": "SQLite persistence for wallet state across restarts",
+    "jsonrpc": "JSON-RPC 2.0 request/response types",
+    "error": "ProxyError enum with JSON-RPC error codes"
   },
   "railgun_lane_modules": {
     "artifacts": "Circuit artifact management - downloads WASM/ZKEY/VKEY from IPFS",
@@ -69,6 +80,7 @@
     "unit_tests": "cargo test -p railgun-lane",
     "proof_generation": "cargo test -p railgun-lane --test proof_generation -- --ignored",
     "e2e_tenderly": "cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture",
+    "proxy_tests": "cargo test -p voidgun-proxy",
     "requires": {
       "tenderly": "TENDERLY_ACCESS_KEY, TENDERLY_ACCOUNT, TENDERLY_PROJECT",
       "mainnet_rpc": "MAINNET_RPC_URL or ETH_RPC_URL for read-only tests"
@@ -94,6 +106,16 @@
       "date": "2024-12-19",
       "issue": "BabyJubjubScalar reduced secret mod field order, breaking s = 8 * (s >> 3)",
       "fix": "Store secret as raw bytes, use BigUint for arithmetic"
+    },
+    "voidgun_proxy": {
+      "date": "2024-12-24",
+      "description": "Added voidgun-proxy RPC server for privacy-via-proxy (issue #46)",
+      "features": [
+        "JSON-RPC server with custom voidgun_* methods",
+        "Transparent interception of eth_getBalance, eth_sendTransaction, personal_sign",
+        "SQLite persistence for wallet state",
+        "Automatic key derivation from wallet signature"
+      ]
     }
   }
 }

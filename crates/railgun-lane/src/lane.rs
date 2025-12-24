@@ -5,6 +5,7 @@
 
 use alloy_primitives::{hex, Address, U256};
 use ark_bn254::Fr as Field;
+use ark_ff::UniformRand;
 use ark_ff::{BigInteger, PrimeField};
 use async_trait::async_trait;
 use thiserror::Error;
@@ -63,10 +64,48 @@ impl PoolType {
 pub struct PoolBalance {
     /// Token address (zero for ETH)
     pub token: Address,
-    /// Total balance
+    /// Total balance (raw, without decimals applied)
     pub balance: U256,
     /// Number of notes making up this balance
     pub note_count: usize,
+    /// Token metadata (symbol, name, decimals) if available
+    pub metadata: Option<crate::rpc::TokenMetadata>,
+}
+
+impl PoolBalance {
+    /// Get formatted balance with proper decimal places
+    pub fn formatted_balance(&self) -> String {
+        match &self.metadata {
+            Some(meta) => meta.format_balance(self.balance),
+            None => self.balance.to_string(),
+        }
+    }
+
+    /// Get token symbol (or "???" if unknown)
+    pub fn symbol(&self) -> &str {
+        match &self.metadata {
+            Some(meta) => &meta.symbol,
+            None => "???",
+        }
+    }
+
+    /// Get display string (e.g., "1.5 USDC")
+    pub fn display(&self) -> String {
+        format!("{} {}", self.formatted_balance(), self.symbol())
+    }
+
+    /// Get USD value if price is available
+    pub fn usd_value(&self) -> Option<f64> {
+        self.metadata.as_ref()?.usd_value(self.balance)
+    }
+
+    /// Get display string with USD value (e.g., "1.5 USDC ($1.50)")
+    pub fn display_with_usd(&self) -> String {
+        match self.usd_value() {
+            Some(usd) => format!("{} (${:.2})", self.display(), usd),
+            None => self.display(),
+        }
+    }
 }
 
 /// Transaction request (unified across pools)
@@ -91,6 +130,17 @@ pub struct TransferResult {
     pub proof: Option<Vec<u8>>,
     /// New note commitment (if created)
     pub commitment: Option<Field>,
+}
+
+/// Gas estimate for a transaction
+#[derive(Clone, Debug)]
+pub struct GasEstimate {
+    /// Estimated gas units
+    pub gas: u64,
+    /// Current gas price in wei
+    pub gas_price: u128,
+    /// Total estimated cost in wei (gas * gas_price)
+    pub total_cost: u128,
 }
 
 /// Abstract pool lane interface
@@ -143,6 +193,34 @@ pub trait PoolLane: Send + Sync {
     async fn sync_to_latest(&mut self) -> Result<u64, LaneError>;
 }
 
+/// Cache for token metadata to avoid repeated RPC calls
+#[derive(Clone, Debug, Default)]
+pub struct TokenMetadataCache {
+    cache: std::collections::HashMap<Address, crate::rpc::TokenMetadata>,
+}
+
+impl TokenMetadataCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self, token: &Address) -> Option<&crate::rpc::TokenMetadata> {
+        self.cache.get(token)
+    }
+
+    pub fn insert(&mut self, token: Address, metadata: crate::rpc::TokenMetadata) {
+        self.cache.insert(token, metadata);
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
+}
+
 /// Railgun lane implementation
 #[allow(dead_code)]
 pub struct RailgunLane {
@@ -172,6 +250,9 @@ pub struct RailgunLane {
 
     /// Last synced block
     last_synced_block: u64,
+
+    /// Token metadata cache
+    token_cache: TokenMetadataCache,
 }
 
 impl RailgunLane {
@@ -193,6 +274,7 @@ impl RailgunLane {
             spent_nullifiers: std::collections::HashSet::new(),
             merkle_tree: crate::notes::NoteMerkleTree::new(16).expect("depth 16 is valid"),
             last_synced_block: 0,
+            token_cache: TokenMetadataCache::new(),
         }
     }
 
@@ -206,6 +288,25 @@ impl RailgunLane {
         let mut lane = Self::new(chain_id, contract, circuits_path);
         lane.rpc_url = Some(rpc_url.into());
         lane
+    }
+
+    /// Create lane with default paths and chain-specific contract addresses
+    ///
+    /// Uses:
+    /// - Default circuits path: ~/.voidgun/circuits
+    /// - Chain-specific Railgun relay contract address
+    pub fn for_chain(chain_id: u64, rpc_url: Option<String>) -> Result<Self, LaneError> {
+        let addresses = crate::contracts::RailgunAddresses::for_chain(chain_id)
+            .ok_or(LaneError::UnsupportedChain)?;
+
+        let circuits_path = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".voidgun")
+            .join("circuits");
+
+        let mut lane = Self::new(chain_id, addresses.relay, circuits_path);
+        lane.rpc_url = rpc_url;
+        Ok(lane)
     }
 
     /// Get wallet reference
@@ -232,6 +333,158 @@ impl RailgunLane {
         }
 
         Err(LaneError::InsufficientBalance)
+    }
+
+    /// Get token metadata, fetching from RPC if not cached
+    pub async fn get_token_metadata(
+        &mut self,
+        token: Address,
+    ) -> Result<crate::rpc::TokenMetadata, LaneError> {
+        if let Some(cached) = self.token_cache.get(&token) {
+            return Ok(cached.clone());
+        }
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = crate::rpc::RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let metadata = client
+            .get_token_metadata(token)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        self.token_cache.insert(token, metadata.clone());
+        Ok(metadata)
+    }
+
+    /// Fetch and cache metadata for all tokens in owned notes
+    pub async fn refresh_token_metadata(&mut self) -> Result<usize, LaneError> {
+        let tokens: std::collections::HashSet<Address> = self
+            .notes
+            .iter()
+            .map(|(note, _)| field_to_address(note.token))
+            .collect();
+
+        let mut count = 0;
+        for token in tokens {
+            if self.token_cache.get(&token).is_none() {
+                self.get_token_metadata(token).await?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    /// Get all balances with token metadata (fetches if needed)
+    pub async fn get_all_balances_with_metadata(&mut self) -> Result<Vec<PoolBalance>, LaneError> {
+        self.refresh_token_metadata().await?;
+        self.get_all_balances().await
+    }
+
+    /// Fetch metadata with USD prices for all tokens
+    pub async fn refresh_token_metadata_with_prices(&mut self) -> Result<usize, LaneError> {
+        let tokens: std::collections::HashSet<Address> = self
+            .notes
+            .iter()
+            .map(|(note, _)| field_to_address(note.token))
+            .collect();
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = crate::rpc::RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let mut count = 0;
+        for token in tokens {
+            let metadata = client
+                .get_token_metadata_with_price(token)
+                .await
+                .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+            self.token_cache.insert(token, metadata);
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Get all balances with metadata including USD prices
+    pub async fn get_all_balances_with_prices(&mut self) -> Result<Vec<PoolBalance>, LaneError> {
+        self.refresh_token_metadata_with_prices().await?;
+        self.get_all_balances().await
+    }
+
+    /// Get the token metadata cache
+    pub fn token_cache(&self) -> &TokenMetadataCache {
+        &self.token_cache
+    }
+
+    /// Subscribe to real-time Railgun events via WebSocket
+    ///
+    /// Returns an EventSubscription that yields RawLogEvent as they arrive.
+    /// The WebSocket URL is derived from the RPC URL (http -> ws, https -> wss).
+    ///
+    /// # Arguments
+    /// * `filter` - Which event types to subscribe to
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut sub = lane.subscribe_events(EventFilter::All).await?;
+    /// while let Some(result) = sub.next().await {
+    ///     match result {
+    ///         Ok(event) => println!("Got event at block {}", event.block_number),
+    ///         Err(e) => eprintln!("Error: {}", e),
+    ///     }
+    /// }
+    /// ```
+    pub async fn subscribe_events(
+        &self,
+        filter: crate::ws::EventFilter,
+    ) -> Result<crate::ws::EventSubscription, LaneError> {
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let ws_url = crate::ws::RailgunWsClient::http_to_ws(rpc_url);
+
+        let ws_client = crate::ws::RailgunWsClient::new(ws_url, self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        ws_client
+            .subscribe(filter)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))
+    }
+
+    /// Subscribe to real-time events with automatic reconnection
+    ///
+    /// If the WebSocket connection drops, it will automatically reconnect
+    /// after the specified delay.
+    pub async fn subscribe_events_with_reconnect(
+        &self,
+        filter: crate::ws::EventFilter,
+        reconnect_delay_ms: u64,
+    ) -> Result<crate::ws::EventSubscription, LaneError> {
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let ws_url = crate::ws::RailgunWsClient::http_to_ws(rpc_url);
+
+        let ws_client = crate::ws::RailgunWsClient::new(ws_url, self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        ws_client
+            .subscribe_with_reconnect(filter, reconnect_delay_ms)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))
     }
 }
 
@@ -272,10 +525,13 @@ impl PoolLane for RailgunLane {
             }
         }
 
+        let metadata = self.token_cache.get(&token).cloned();
+
         Ok(PoolBalance {
             token,
             balance,
             note_count: count,
+            metadata,
         })
     }
 
@@ -292,10 +548,15 @@ impl PoolLane for RailgunLane {
 
         Ok(balances
             .into_iter()
-            .map(|(token_field, (balance, count))| PoolBalance {
-                token: field_to_address(token_field),
-                balance,
-                note_count: count,
+            .map(|(token_field, (balance, count))| {
+                let token = field_to_address(token_field);
+                let metadata = self.token_cache.get(&token).cloned();
+                PoolBalance {
+                    token,
+                    balance,
+                    note_count: count,
+                    metadata,
+                }
             })
             .collect())
     }
@@ -411,16 +672,18 @@ impl PoolLane for RailgunLane {
             total_input += note.value;
         }
 
-        // Parse recipient address to get their NPK
-        // For now, assume request.to is a hex-encoded master public key
-        // TODO: Parse 0zk address format properly
-        let recipient_mpk = if request.to.starts_with("0x") {
+        // Parse recipient address to get their master public key and viewing public key
+        let (recipient_mpk, recipient_vpk) = if request.to.starts_with("0zk") {
+            let (_version, mpk, _chain_id, vpk) = RailgunWallet::parse_0zk_address(&request.to)
+                .map_err(|e| LaneError::TransactionFailed(format!("Invalid 0zk address: {}", e)))?;
+            (mpk, vpk)
+        } else if request.to.starts_with("0x") {
             let bytes = hex::decode(request.to.trim_start_matches("0x"))
                 .map_err(|e| LaneError::TransactionFailed(format!("Invalid recipient: {}", e)))?;
             let mut padded = [0u8; 32];
             let start = 32usize.saturating_sub(bytes.len());
             padded[start..].copy_from_slice(&bytes);
-            Field::from_be_bytes_mod_order(&padded)
+            (Field::from_be_bytes_mod_order(&padded), [0u8; 32])
         } else {
             return Err(LaneError::TransactionFailed(
                 "Recipient must be 0x hex address or 0zk address".into(),
@@ -510,10 +773,8 @@ impl PoolLane for RailgunLane {
             .await
             .map_err(|e| LaneError::ProofGeneration(e.to_string()))?;
 
-        // Encrypt output note for recipient
-        // TODO: Get recipient's viewing public key from 0zk address
-        let viewing_pub = [0u8; 32]; // Placeholder
-        let _encrypted = EncryptedNote::encrypt(&output_note, &viewing_pub)
+        // Encrypt output note for recipient using their viewing public key
+        let _encrypted = EncryptedNote::encrypt(&output_note, &recipient_vpk)
             .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
 
         // Return result with proof and commitment
@@ -697,12 +958,10 @@ impl RailgunLane {
 
         let target = match target_block {
             Some(t) => t,
-            None => {
-                client
-                    .get_block_number()
-                    .await
-                    .map_err(|e| LaneError::TransactionFailed(e.to_string()))?
-            }
+            None => client
+                .get_block_number()
+                .await
+                .map_err(|e| LaneError::TransactionFailed(e.to_string()))?,
         };
 
         let batch_size = 10_000u64;
@@ -724,14 +983,17 @@ impl RailgunLane {
                 match event {
                     RailgunEvent::Shield(shield_event) => {
                         for (i, commitment) in shield_event.commitments.iter().enumerate() {
-                            let leaf_index = self.merkle_tree.insert(*commitment)
+                            let leaf_index = self
+                                .merkle_tree
+                                .insert(*commitment)
                                 .map_err(|e| LaneError::MerkleTreeError(e.to_string()))?;
 
                             if let (Some(ciphertext), Some(preimage)) = (
                                 shield_event.ciphertexts.get(i),
                                 shield_event.preimages.get(i),
                             ) {
-                                let shield_ct = crate::notes::ShieldCiphertext::from_parsed(ciphertext);
+                                let shield_ct =
+                                    crate::notes::ShieldCiphertext::from_parsed(ciphertext);
                                 if let Ok(random_bytes) = shield_ct.try_decrypt(viewing_secret) {
                                     let random = Field::from_be_bytes_mod_order(&random_bytes);
                                     let expected_npk = crate::poseidon::poseidon2(
@@ -762,10 +1024,10 @@ impl RailgunLane {
                     }
 
                     RailgunEvent::Transact(transact_event) => {
-                        for (i, commitment) in
-                            transact_event.commitment_hashes.iter().enumerate()
-                        {
-                            let leaf_index = self.merkle_tree.insert(*commitment)
+                        for (i, commitment) in transact_event.commitment_hashes.iter().enumerate() {
+                            let leaf_index = self
+                                .merkle_tree
+                                .insert(*commitment)
                                 .map_err(|e| LaneError::MerkleTreeError(e.to_string()))?;
 
                             if let Some(ciphertext_bytes) = transact_event.ciphertexts.get(i) {
@@ -806,6 +1068,488 @@ impl RailgunLane {
         self.last_synced_block = target;
         Ok(target)
     }
+
+    /// Estimate gas for a shield transaction
+    ///
+    /// Returns estimated gas, current gas price, and total cost in wei.
+    pub async fn estimate_shield_gas(
+        &self,
+        from: Address,
+        token: Address,
+        amount: U256,
+    ) -> Result<GasEstimate, LaneError> {
+        use crate::contracts::TransactionBuilder;
+        use crate::rpc::RailgunRpcClient;
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let builder = TransactionBuilder::new(self.chain_id).ok_or(LaneError::UnsupportedChain)?;
+
+        // Build dummy shield calldata for estimation
+        let dummy_npk = Field::from(1u64);
+        let dummy_bundle = [[0u8; 32]; 3];
+        let dummy_key = [0u8; 32];
+
+        let calldata = builder
+            .build_shield_calldata(token, amount, dummy_npk, dummy_bundle, dummy_key)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let gas = client
+            .estimate_gas(from, builder.addresses.relay, &calldata, None)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let gas_price = client
+            .get_gas_price()
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        Ok(GasEstimate {
+            gas,
+            gas_price,
+            total_cost: gas as u128 * gas_price,
+        })
+    }
+
+    /// Estimate gas for a transact (private transfer) transaction
+    ///
+    /// Returns estimated gas, current gas price, and total cost in wei.
+    /// Note: This is an approximation since actual gas depends on proof verification.
+    pub async fn estimate_transfer_gas(&self, _from: Address) -> Result<GasEstimate, LaneError> {
+        use crate::rpc::RailgunRpcClient;
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        // Transact gas is fairly constant due to ZK proof verification
+        // Base cost is approximately 350k-500k gas depending on circuit size
+        // We return a conservative estimate since actual simulation requires valid proof
+        let estimated_gas: u64 = 450_000;
+
+        let gas_price = client
+            .get_gas_price()
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        Ok(GasEstimate {
+            gas: estimated_gas,
+            gas_price,
+            total_cost: estimated_gas as u128 * gas_price,
+        })
+    }
+
+    /// Estimate gas for an unshield (withdraw) transaction
+    ///
+    /// Returns estimated gas, current gas price, and total cost in wei.
+    pub async fn estimate_unshield_gas(&self, from: Address) -> Result<GasEstimate, LaneError> {
+        // Unshield uses the same transact circuit, so gas is similar
+        self.estimate_transfer_gas(from).await
+    }
+
+    /// Submit a shield transaction on-chain
+    ///
+    /// This builds and signs an EIP-1559 transaction to shield tokens into the Railgun pool.
+    ///
+    /// # Arguments
+    /// * `private_key` - Sender's ECDSA private key (32 bytes)
+    /// * `token` - Token address to shield
+    /// * `amount` - Amount to shield
+    /// * `wait_confirmation` - If true, waits for transaction confirmation
+    ///
+    /// # Returns
+    /// Transaction hash and optional receipt (if wait_confirmation is true)
+    pub async fn submit_shield(
+        &self,
+        private_key: &[u8; 32],
+        token: Address,
+        amount: U256,
+    ) -> Result<SubmitResult, LaneError> {
+        use crate::contracts::TransactionBuilder;
+        use crate::rpc::RailgunRpcClient;
+        use crate::tx::Eip1559Tx;
+        use k256::ecdsa::SigningKey;
+
+        let wallet = self
+            .wallet
+            .as_ref()
+            .ok_or(LaneError::KeyDerivation("Not initialized".into()))?;
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let builder = TransactionBuilder::new(self.chain_id).ok_or(LaneError::UnsupportedChain)?;
+
+        // Derive sender address from private key
+        let signing_key = SigningKey::from_bytes(private_key.into())
+            .map_err(|_| LaneError::KeyDerivation("Invalid private key".into()))?;
+        let verifying_key = signing_key.verifying_key();
+        let sender = derive_address_from_pubkey(verifying_key);
+
+        // Generate random for the note
+        let random = Field::rand(&mut rand::thread_rng());
+        let npk = crate::poseidon::poseidon2(wallet.master_public_key, random);
+
+        // Encrypt the random value for later decryption
+        let viewing_pub = wallet.viewing.public.as_bytes();
+        let (encrypted_bundle, shield_key) = encrypt_shield_random(random, viewing_pub);
+
+        // Build calldata
+        let calldata = builder
+            .build_shield_calldata(token, amount, npk, encrypted_bundle, shield_key)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        // Get transaction parameters
+        let nonce = client
+            .get_transaction_count(sender)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let gas_price = client
+            .get_gas_price()
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let priority_fee = client.get_max_priority_fee().await.unwrap_or(1_500_000_000); // 1.5 gwei default
+
+        let gas_limit = client
+            .estimate_gas(sender, builder.addresses.relay, &calldata, None)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        // Build EIP-1559 transaction
+        let tx = Eip1559Tx::new_contract_call(
+            self.chain_id,
+            nonce,
+            builder.addresses.relay,
+            calldata,
+            (gas_limit as f64 * 1.2) as u64, // 20% buffer
+            priority_fee,
+            gas_price + priority_fee,
+        );
+
+        // Sign and submit
+        let signed_tx = tx
+            .sign(private_key)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let tx_hash = client
+            .send_raw_transaction(&signed_tx)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        Ok(SubmitResult {
+            tx_hash,
+            nonce,
+            chain_id: self.chain_id,
+        })
+    }
+
+    /// Submit a transact (private transfer) transaction on-chain
+    ///
+    /// This generates a proof and submits the transaction.
+    ///
+    /// # Arguments
+    /// * `private_key` - Sender's ECDSA private key (32 bytes)
+    /// * `request` - Transfer request with recipient and amount
+    /// * `proof` - Pre-generated RailgunProof
+    /// * `merkle_root` - Merkle root used in the proof
+    /// * `nullifiers` - Nullifiers from the proof
+    /// * `output_commitments` - Output commitments with ciphertexts
+    ///
+    /// # Returns
+    /// Transaction hash
+    pub async fn submit_transact(
+        &self,
+        private_key: &[u8; 32],
+        proof: &crate::prover::RailgunProof,
+        merkle_root: Field,
+        nullifiers: &[Field],
+        output_commitments: &[(Field, Vec<u8>)],
+        tree_number: u16,
+    ) -> Result<SubmitResult, LaneError> {
+        use crate::contracts::TransactionBuilder;
+        use crate::rpc::RailgunRpcClient;
+        use crate::tx::Eip1559Tx;
+        use k256::ecdsa::SigningKey;
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let builder = TransactionBuilder::new(self.chain_id).ok_or(LaneError::UnsupportedChain)?;
+
+        // Derive sender address from private key
+        let signing_key = SigningKey::from_bytes(private_key.into())
+            .map_err(|_| LaneError::KeyDerivation("Invalid private key".into()))?;
+        let verifying_key = signing_key.verifying_key();
+        let sender = derive_address_from_pubkey(verifying_key);
+
+        // Build transact calldata
+        let calldata = builder
+            .build_transact_calldata(
+                proof,
+                merkle_root,
+                nullifiers,
+                output_commitments,
+                tree_number,
+                0,     // min gas price
+                false, // not unshield
+                None,
+            )
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        // Get transaction parameters
+        let nonce = client
+            .get_transaction_count(sender)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let gas_price = client
+            .get_gas_price()
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let priority_fee = client.get_max_priority_fee().await.unwrap_or(1_500_000_000);
+
+        // Transact is expensive due to proof verification
+        let gas_limit = 500_000u64;
+
+        // Build EIP-1559 transaction
+        let tx = Eip1559Tx::new_contract_call(
+            self.chain_id,
+            nonce,
+            builder.addresses.relay,
+            calldata,
+            gas_limit,
+            priority_fee,
+            gas_price + priority_fee,
+        );
+
+        // Sign and submit
+        let signed_tx = tx
+            .sign(private_key)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let tx_hash = client
+            .send_raw_transaction(&signed_tx)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        Ok(SubmitResult {
+            tx_hash,
+            nonce,
+            chain_id: self.chain_id,
+        })
+    }
+
+    /// Submit an unshield (withdraw) transaction on-chain
+    ///
+    /// This generates a proof and submits the transaction to withdraw funds.
+    pub async fn submit_unshield(
+        &self,
+        private_key: &[u8; 32],
+        proof: &crate::prover::RailgunProof,
+        merkle_root: Field,
+        nullifiers: &[Field],
+        output_commitments: &[(Field, Vec<u8>)],
+        tree_number: u16,
+        recipient: Address,
+    ) -> Result<SubmitResult, LaneError> {
+        use crate::contracts::TransactionBuilder;
+        use crate::rpc::RailgunRpcClient;
+        use crate::tx::Eip1559Tx;
+        use k256::ecdsa::SigningKey;
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let builder = TransactionBuilder::new(self.chain_id).ok_or(LaneError::UnsupportedChain)?;
+
+        // Derive sender address from private key
+        let signing_key = SigningKey::from_bytes(private_key.into())
+            .map_err(|_| LaneError::KeyDerivation("Invalid private key".into()))?;
+        let verifying_key = signing_key.verifying_key();
+        let sender = derive_address_from_pubkey(verifying_key);
+
+        // Build unshield calldata
+        let calldata = builder
+            .build_transact_calldata(
+                proof,
+                merkle_root,
+                nullifiers,
+                output_commitments,
+                tree_number,
+                0,
+                true, // is_unshield
+                Some(recipient),
+            )
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        // Get transaction parameters
+        let nonce = client
+            .get_transaction_count(sender)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let gas_price = client
+            .get_gas_price()
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let priority_fee = client.get_max_priority_fee().await.unwrap_or(1_500_000_000);
+
+        let gas_limit = 500_000u64;
+
+        let tx = Eip1559Tx::new_contract_call(
+            self.chain_id,
+            nonce,
+            builder.addresses.relay,
+            calldata,
+            gas_limit,
+            priority_fee,
+            gas_price + priority_fee,
+        );
+
+        let signed_tx = tx
+            .sign(private_key)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        let tx_hash = client
+            .send_raw_transaction(&signed_tx)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        Ok(SubmitResult {
+            tx_hash,
+            nonce,
+            chain_id: self.chain_id,
+        })
+    }
+
+    /// Wait for a transaction to be confirmed
+    pub async fn wait_for_confirmation(
+        &self,
+        tx_hash: alloy_primitives::B256,
+        timeout_secs: u64,
+    ) -> Result<crate::rpc::TransactionReceipt, LaneError> {
+        use crate::rpc::RailgunRpcClient;
+
+        let rpc_url = self
+            .rpc_url
+            .as_ref()
+            .ok_or(LaneError::TransactionFailed("No RPC URL configured".into()))?;
+
+        let client = RailgunRpcClient::new(rpc_url.clone(), self.chain_id)
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))?;
+
+        client
+            .wait_for_confirmation(tx_hash, timeout_secs)
+            .await
+            .map_err(|e| LaneError::TransactionFailed(e.to_string()))
+    }
+}
+
+/// Result of submitting a transaction
+#[derive(Clone, Debug)]
+pub struct SubmitResult {
+    /// Transaction hash
+    pub tx_hash: alloy_primitives::B256,
+    /// Nonce used
+    pub nonce: u64,
+    /// Chain ID
+    pub chain_id: u64,
+}
+
+/// Derive Ethereum address from secp256k1 public key
+fn derive_address_from_pubkey(pubkey: &k256::ecdsa::VerifyingKey) -> Address {
+    use sha3::{Digest, Keccak256};
+
+    let point = pubkey.to_encoded_point(false);
+    let pubkey_bytes = &point.as_bytes()[1..]; // Skip 0x04 prefix
+    let hash = Keccak256::digest(pubkey_bytes);
+    Address::from_slice(&hash[12..])
+}
+
+/// Encrypt the random value for shield ciphertext
+fn encrypt_shield_random(random: Field, viewing_pub: &[u8; 32]) -> ([[u8; 32]; 3], [u8; 32]) {
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+    use sha3::{Digest, Sha3_256};
+    use x25519_dalek::{EphemeralSecret, PublicKey};
+
+    // Generate ephemeral keypair for ECDH
+    let ephemeral_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
+    let ephemeral_public = PublicKey::from(&ephemeral_secret);
+
+    // ECDH with recipient's viewing public key
+    let recipient_public = PublicKey::from(*viewing_pub);
+    let shared_secret = ephemeral_secret.diffie_hellman(&recipient_public);
+
+    // Derive AES key from shared secret
+    let mut hasher = Sha3_256::new();
+    hasher.update(b"railgun-shield-v1");
+    hasher.update(shared_secret.as_bytes());
+    let key_material = hasher.finalize();
+
+    // Encrypt random value with AES-GCM
+    // SECURITY: Zero nonce is safe here because each encryption uses a unique ephemeral key,
+    // which produces a unique shared secret and thus a unique derived key per message.
+    // AES-GCM nonce reuse is only dangerous when the same (key, nonce) pair encrypts multiple messages.
+    let cipher = Aes256Gcm::new_from_slice(&key_material).expect("valid key");
+    let nonce = Nonce::from_slice(&[0u8; 12]);
+
+    let random_bytes = {
+        use ark_ff::{BigInteger, PrimeField};
+        let be_bytes = random.into_bigint().to_bytes_be();
+        let mut bytes = [0u8; 32];
+        bytes[32 - be_bytes.len()..].copy_from_slice(&be_bytes);
+        bytes
+    };
+
+    let ciphertext = cipher
+        .encrypt(nonce, random_bytes.as_slice())
+        .expect("encryption");
+
+    // Pack into 3x32 byte bundle (ciphertext + padding)
+    let mut bundle = [[0u8; 32]; 3];
+    bundle[0].copy_from_slice(&ciphertext[..32.min(ciphertext.len())]);
+    if ciphertext.len() > 32 {
+        let remaining = ciphertext.len() - 32;
+        bundle[1][..remaining.min(32)].copy_from_slice(&ciphertext[32..32 + remaining.min(32)]);
+    }
+
+    // Shield key is the ephemeral public key
+    let mut shield_key = [0u8; 32];
+    shield_key.copy_from_slice(ephemeral_public.as_bytes());
+
+    (bundle, shield_key)
 }
 
 // Helper functions

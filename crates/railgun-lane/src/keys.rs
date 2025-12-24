@@ -74,10 +74,13 @@ fn ark_to_circom_coords(x_ark: BabyJubjubFq, y_ark: BabyJubjubFq) -> (BabyJubjub
     (x_ark * inv_sqrt_a(), y_ark)
 }
 
-/// Convert point from circomlib coordinates to arkworks coordinates  
+/// Convert point from circomlib coordinates to arkworks coordinates
 /// (x_circ, y_circ) -> (x_ark, y_ark) = (x_circ * sqrt(A), y_circ)
 #[allow(dead_code)]
-fn circom_to_ark_coords(x_circ: BabyJubjubFq, y_circ: BabyJubjubFq) -> (BabyJubjubFq, BabyJubjubFq) {
+fn circom_to_ark_coords(
+    x_circ: BabyJubjubFq,
+    y_circ: BabyJubjubFq,
+) -> (BabyJubjubFq, BabyJubjubFq) {
     (x_circ * sqrt_a(), y_circ)
 }
 
@@ -123,12 +126,12 @@ fn base8() -> BabyJubjubPoint {
         let x = BabyJubjubFq::from_bigint(x_bigint).expect("valid x coordinate");
         let y = BabyJubjubFq::from_bigint(y_bigint).expect("valid y coordinate");
         let point = BabyJubjubPoint::new_unchecked(x, y);
-        
+
         debug_assert!(
             point.is_on_curve(),
             "Base8 must be on arkworks Baby Jubjub curve"
         );
-        
+
         point
     })
 }
@@ -205,7 +208,7 @@ impl SpendingKey {
     /// 3. Derive public key from pruned scalar
     pub fn from_raw_bytes(raw_key: [u8; 32]) -> Self {
         use num_bigint::BigUint;
-        
+
         // Step 1: Blake512 hash
         let mut hasher = Blake2b512::new();
         hasher.update(&raw_key);
@@ -222,7 +225,7 @@ impl SpendingKey {
         // Use BigUint to avoid mod reduction, then shift by 3
         let s_biguint = BigUint::from_bytes_le(&secret_bytes);
         let s_shifted: BigUint = &s_biguint >> 3;
-        
+
         // Convert shifted value to scalar for curve multiplication
         // This is safe because s >> 3 is always < subOrder (due to bit 254 set, bit 255 clear)
         let shifted_bytes = {
@@ -250,13 +253,13 @@ impl SpendingKey {
     #[deprecated(note = "Use from_raw_bytes for circomlib-compatible keys")]
     pub fn from_scalar(secret: BabyJubjubScalar) -> Self {
         use num_bigint::BigUint;
-        
+
         // Convert scalar to bytes
         let secret_bytes_vec = secret.into_bigint().to_bytes_le();
         let mut secret_bytes = [0u8; 32];
         let len = secret_bytes_vec.len().min(32);
         secret_bytes[..len].copy_from_slice(&secret_bytes_vec[..len]);
-        
+
         // Compute s >> 3 (divide by 8)
         let s_biguint = BigUint::from_bytes_le(&secret_bytes);
         let s_shifted: BigUint = &s_biguint >> 3;
@@ -286,7 +289,7 @@ impl SpendingKey {
     pub fn public_xy(&self) -> (Field, Field) {
         // Convert from arkworks to circomlib coordinates: x_circ = x_ark / sqrt(A)
         let (x_circ, y_circ) = ark_to_circom_coords(self.public.x, self.public.y);
-        
+
         // Convert BabyJubjub Fq to BN254 Fr (same field, different type)
         let x_bytes = x_circ.into_bigint().to_bytes_be();
         let y_bytes = y_circ.into_bigint().to_bytes_be();
@@ -347,7 +350,7 @@ impl SpendingKey {
 
         // Convert R8 from arkworks to circomlib coordinates for the circuit
         let (r8_x_circ, r8_y_circ) = ark_to_circom_coords(r8_point_ark.x, r8_point_ark.y);
-        
+
         // Convert to Field for Poseidon hashing
         let r8_x = Field::from_be_bytes_mod_order(&r8_x_circ.into_bigint().to_bytes_be());
         let r8_y = Field::from_be_bytes_mod_order(&r8_y_circ.into_bigint().to_bytes_be());
@@ -635,13 +638,13 @@ mod tests {
     use super::*;
     use ark_ff::Zero;
 
-    const TEST_MNEMONIC: &str = 
+    const TEST_MNEMONIC: &str =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     #[test]
     fn test_base8_coordinates() {
         use ark_ec::AffineRepr;
-        
+
         // Circomlib Base8 coordinates (from babyjub.js)
         let expected_x_circ =
             "5299619240641551281634865583518297030282874472190772894086521144482721001553";
@@ -649,10 +652,13 @@ mod tests {
             "16950150798460657717958625567821834550301663161624707787222815936182638968203";
 
         let b8 = base8();
-        
+
         // Base8 must be on the arkworks curve
-        assert!(b8.is_on_curve(), "Base8 must be on arkworks Baby Jubjub curve");
-        
+        assert!(
+            b8.is_on_curve(),
+            "Base8 must be on arkworks Baby Jubjub curve"
+        );
+
         // Convert from arkworks to circomlib coordinates
         let (x_circ, y_circ) = ark_to_circom_coords(b8.x, b8.y);
         let x_str = x_circ.into_bigint().to_string();
@@ -775,27 +781,37 @@ mod tests {
         let sub_order = BigUint::parse_bytes(
             b"2736030358979909402780800718157159386076813972158567259200215660948447373041",
             10,
-        ).expect("valid subOrder");
+        )
+        .expect("valid subOrder");
 
         // Debug: print key info
         println!("=== EdDSA Debug ===");
         println!("raw_key: 0x{}", hex::encode(&wallet.spending.raw_key));
-        println!("blake_hash[0:32]: 0x{}", hex::encode(&wallet.spending.blake_hash[..32]));
-        
+        println!(
+            "blake_hash[0:32]: 0x{}",
+            hex::encode(&wallet.spending.blake_hash[..32])
+        );
+
         // Secret scalar (from raw bytes, NOT reduced mod scalar field)
         let secret_biguint = BigUint::from_bytes_le(&wallet.spending.secret_bytes);
         println!("secret (decimal): {}", secret_biguint);
         println!("secret mod subOrder: {}", &secret_biguint % &sub_order);
         println!("secret mod 8: {}", &secret_biguint % BigUint::from(8u64));
-        
+
         // Secret >> 3 (what was used for public key derivation)
         let secret_shifted: BigUint = &secret_biguint >> 3;
         println!("secret >> 3 (decimal): {}", secret_shifted);
-        
-        println!("public.x (ark): 0x{}", hex::encode(wallet.spending.public.x.into_bigint().to_bytes_le()));
-        println!("public.y (ark): 0x{}", hex::encode(wallet.spending.public.y.into_bigint().to_bytes_le()));
+
+        println!(
+            "public.x (ark): 0x{}",
+            hex::encode(wallet.spending.public.x.into_bigint().to_bytes_le())
+        );
+        println!(
+            "public.y (ark): 0x{}",
+            hex::encode(wallet.spending.public.y.into_bigint().to_bytes_le())
+        );
         println!("public on curve: {}", wallet.spending.public.is_on_curve());
-        
+
         // Verify public key derivation: A = Base8 * (secret >> 3)
         let secret_shifted_scalar = BabyJubjubScalar::from_le_bytes_mod_order(&{
             let bytes = secret_shifted.to_bytes_le();
@@ -805,17 +821,38 @@ mod tests {
             padded
         });
         let expected_public = (base8() * secret_shifted_scalar).into_affine();
-        println!("expected public.x: 0x{}", hex::encode(expected_public.x.into_bigint().to_bytes_le()));
-        println!("expected public.y: 0x{}", hex::encode(expected_public.y.into_bigint().to_bytes_le()));
-        assert_eq!(wallet.spending.public.x, expected_public.x, "Public key x mismatch");
-        assert_eq!(wallet.spending.public.y, expected_public.y, "Public key y mismatch");
+        println!(
+            "expected public.x: 0x{}",
+            hex::encode(expected_public.x.into_bigint().to_bytes_le())
+        );
+        println!(
+            "expected public.y: 0x{}",
+            hex::encode(expected_public.y.into_bigint().to_bytes_le())
+        );
+        assert_eq!(
+            wallet.spending.public.x, expected_public.x,
+            "Public key x mismatch"
+        );
+        assert_eq!(
+            wallet.spending.public.y, expected_public.y,
+            "Public key y mismatch"
+        );
         println!("[OK] Public key derivation verified");
 
         println!("\n=== Signature Values ===");
-        println!("signature.r8_x: 0x{}", hex::encode(signature.r8_x.into_bigint().to_bytes_be()));
-        println!("signature.r8_y: 0x{}", hex::encode(signature.r8_y.into_bigint().to_bytes_be()));
-        println!("signature.s: 0x{}", hex::encode(signature.s.into_bigint().to_bytes_le()));
-        
+        println!(
+            "signature.r8_x: 0x{}",
+            hex::encode(signature.r8_x.into_bigint().to_bytes_be())
+        );
+        println!(
+            "signature.r8_y: 0x{}",
+            hex::encode(signature.r8_y.into_bigint().to_bytes_be())
+        );
+        println!(
+            "signature.s: 0x{}",
+            hex::encode(signature.s.into_bigint().to_bytes_le())
+        );
+
         let s_sig_biguint = BigUint::from_bytes_le(&signature.s.into_bigint().to_bytes_le());
         println!("signature.s (decimal): {}", s_sig_biguint);
 
@@ -825,8 +862,14 @@ mod tests {
 
         let (ax, ay) = wallet.spending.public_xy();
         println!("\n=== Public Key (circomlib coords) ===");
-        println!("ax (Field): 0x{}", hex::encode(ax.into_bigint().to_bytes_le()));
-        println!("ay (Field): 0x{}", hex::encode(ay.into_bigint().to_bytes_le()));
+        println!(
+            "ax (Field): 0x{}",
+            hex::encode(ax.into_bigint().to_bytes_le())
+        );
+        println!(
+            "ay (Field): 0x{}",
+            hex::encode(ay.into_bigint().to_bytes_le())
+        );
 
         // Compute hm = Poseidon(R8.x, R8.y, A.x, A.y, message)
         let hm = crate::poseidon::poseidon_hash(&[signature.r8_x, signature.r8_y, ax, ay, message])
@@ -843,7 +886,7 @@ mod tests {
         let hm_scalar = BabyJubjubScalar::from_le_bytes_mod_order(&hm.into_bigint().to_bytes_le());
 
         println!("\n=== Verification ===");
-        
+
         // Compute left side: S * Base8
         let left = (base8() * s_scalar).into_affine();
         println!("left = S * Base8: ({}, {})", left.x, left.y);
@@ -865,7 +908,10 @@ mod tests {
         // First compute 8 * hm
         let eight = BabyJubjubScalar::from(8u64);
         let eight_hm = eight * hm_scalar;
-        println!("8 * hm (scalar): 0x{}", hex::encode(eight_hm.into_bigint().to_bytes_le()));
+        println!(
+            "8 * hm (scalar): 0x{}",
+            hex::encode(eight_hm.into_bigint().to_bytes_le())
+        );
 
         // Compute 8 * hm * A (using arkworks public key)
         let eight_hm_a = (wallet.spending.public.into_group() * eight_hm).into_affine();
@@ -883,29 +929,36 @@ mod tests {
         // = R8 + 8 * hm * ((s >> 3) * Base8)
         // = R8 + 8 * hm * A
         println!("\n=== Algebraic Check ===");
-        
+
         // Compute hm * s * Base8 directly (need to use secret_bytes mod subOrder for scalar mult)
-        let secret_scalar = BabyJubjubScalar::from_le_bytes_mod_order(&wallet.spending.secret_bytes);
+        let secret_scalar =
+            BabyJubjubScalar::from_le_bytes_mod_order(&wallet.spending.secret_bytes);
         let hm_s = hm_scalar * secret_scalar;
         let hm_s_base8 = (base8() * hm_s).into_affine();
         println!("hm * s * Base8: ({}, {})", hm_s_base8.x, hm_s_base8.y);
-        
+
         // This should equal 8 * hm * A
         println!("8 * hm * A:     ({}, {})", eight_hm_a.x, eight_hm_a.y);
-        
+
         // Check if hm * s == 8 * hm * (s >> 3)
         let s_mod = &secret_biguint % &sub_order;
         let shifted_mod = &secret_shifted % &sub_order;
         println!("\nChecking: s == 8 * (s >> 3)?");
         println!("s mod subOrder:             {}", s_mod);
-        println!("8 * (s >> 3) mod subOrder:  {}", (BigUint::from(8u64) * &shifted_mod) % &sub_order);
-        
+        println!(
+            "8 * (s >> 3) mod subOrder:  {}",
+            (BigUint::from(8u64) * &shifted_mod) % &sub_order
+        );
+
         // The key insight: s is pruned so bottom 3 bits are 0
         // Therefore s = 8 * (s >> 3) exactly (no mod needed for equality)
         let s_from_shift = BigUint::from(8u64) * &secret_shifted;
         println!("8 * (s >> 3) (no mod):      {}", s_from_shift);
         println!("s (no mod):                 {}", secret_biguint);
-        assert_eq!(secret_biguint, s_from_shift, "s should equal 8 * (s >> 3) due to pruning");
+        assert_eq!(
+            secret_biguint, s_from_shift,
+            "s should equal 8 * (s >> 3) due to pruning"
+        );
         println!("[OK] s == 8 * (s >> 3) verified");
 
         // Verify left == right
@@ -918,36 +971,36 @@ mod tests {
     fn test_coordinate_roundtrip() {
         // Test that coordinate transformation is its own inverse
         use ark_ec::AffineRepr;
-        
+
         let b8 = base8();
         assert!(b8.is_on_curve(), "Base8 not on arkworks curve");
-        
+
         // arkworks -> circomlib -> arkworks
         let (x_circ, y_circ) = ark_to_circom_coords(b8.x, b8.y);
         let (x_ark2, y_ark2) = circom_to_ark_coords(x_circ, y_circ);
-        
+
         assert_eq!(b8.x, x_ark2, "x coordinate roundtrip failed");
         assert_eq!(b8.y, y_ark2, "y coordinate roundtrip failed");
         println!("[OK] Coordinate roundtrip test passed");
     }
-    
+
     #[test]
     fn test_scalar_mul_consistency() {
         // Test that scalar multiplication is consistent with coordinate transformation
         use ark_ec::AffineRepr;
-        
+
         let b8 = base8();
         let scalar = BabyJubjubScalar::from(12345u64);
-        
+
         // Compute P = scalar * Base8 in arkworks
         let p_ark = (b8 * scalar).into_affine();
         assert!(p_ark.is_on_curve(), "Result not on curve");
-        
+
         // Convert to circomlib and back
         let (px_circ, py_circ) = ark_to_circom_coords(p_ark.x, p_ark.y);
         let (px_ark2, py_ark2) = circom_to_ark_coords(px_circ, py_circ);
         let p_ark2 = BabyJubjubPoint::new_unchecked(px_ark2, py_ark2);
-        
+
         assert_eq!(p_ark, p_ark2, "Scalar mul + roundtrip failed");
         println!("[OK] Scalar multiplication consistency test passed");
     }

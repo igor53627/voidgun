@@ -10,12 +10,11 @@ mod common;
 use ark_bn254::Fr as Field;
 use ark_ff::UniformRand;
 use railgun_lane::{
-    ArtifactStore, CircuitVariant, NoteMerkleTree, RailgunNote, RailgunProver,
-    TransactWitness,
+    ArtifactStore, CircuitVariant, NoteMerkleTree, RailgunNote, RailgunProver, TransactWitness,
 };
 use std::sync::Arc;
 
-use common::{setup_prover, setup_wallet, compute_message_hash, ARTIFACTS_PATH};
+use common::{compute_message_hash, setup_prover, setup_wallet, ARTIFACTS_PATH};
 
 // Re-export RailgunWallet for tests that use it directly
 #[allow(unused_imports)]

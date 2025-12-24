@@ -50,6 +50,8 @@ pub mod notes;
 pub mod poseidon;
 pub mod prover;
 pub mod rpc;
+pub mod tx;
+pub mod ws;
 
 pub use artifacts::{
     ArtifactStore, CircuitArtifact, CircuitVariant, DownloadProgress, ProgressCallback,
@@ -60,13 +62,20 @@ pub use event_loader::{
     TreeBuildResult,
 };
 pub use keys::{EddsaSignature, RailgunWallet, SpendingKey, ViewingKey};
-pub use lane::{PoolLane, PoolType, RailgunLane, TransferRequest, TransferResult};
-pub use notes::{EncryptedNote, NoteMerkleTree, NoteError, RailgunNote, ShieldCiphertext, MAX_MERKLE_DEPTH};
+pub use lane::{
+    GasEstimate, PoolBalance, PoolLane, PoolType, RailgunLane, SubmitResult, TokenMetadataCache,
+    TransferRequest, TransferResult,
+};
+pub use notes::{
+    EncryptedNote, NoteError, NoteMerkleTree, RailgunNote, ShieldCiphertext, MAX_MERKLE_DEPTH,
+};
 pub use prover::{CommitmentCiphertextData, RailgunProof, RailgunProver, TransactWitness};
-pub use rpc::{EventSyncer, RailgunEvent, RailgunRpcClient};
+pub use rpc::{EventSyncer, RailgunEvent, RailgunRpcClient, TokenMetadata, TransactionReceipt};
+pub use tx::{Eip1559Tx, SubmittedTx, TxError};
+pub use ws::{EventFilter, EventSubscription, RailgunWsClient, RawLogEvent, WsError};
 
 /// Domain separator for deriving Railgun keys from wallet signature
-pub const RAILGUN_DOMAIN_MESSAGE: &str = 
+pub const RAILGUN_DOMAIN_MESSAGE: &str =
     "Authorize Railgun privacy pool access via Voidgun proxy.\n\nThis signature will be used to derive your Railgun wallet keys deterministically.";
 
 /// Railgun's BIP44 coin type

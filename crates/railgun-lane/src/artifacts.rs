@@ -259,7 +259,10 @@ impl ArtifactStore {
     }
 
     /// Download multiple variants sequentially
-    pub async fn download_variants(&self, variants: &[CircuitVariant]) -> Result<usize, ArtifactError> {
+    pub async fn download_variants(
+        &self,
+        variants: &[CircuitVariant],
+    ) -> Result<usize, ArtifactError> {
         let mut downloaded = 0;
         for variant in variants {
             if self.download_variant(variant).await? {
@@ -270,7 +273,10 @@ impl ArtifactStore {
     }
 
     /// Download artifacts from IPFS (internal)
-    async fn download_artifacts_internal(&self, variant: &CircuitVariant) -> Result<(), ArtifactError> {
+    async fn download_artifacts_internal(
+        &self,
+        variant: &CircuitVariant,
+    ) -> Result<(), ArtifactError> {
         let key = variant.as_string();
         tokio::fs::create_dir_all(&self.base_path).await?;
 
@@ -359,7 +365,12 @@ impl ArtifactStore {
             file: filename.to_string(),
             downloaded: bytes.len() as u64,
             total: total_size,
-            phase: if is_brotli { "decompressing" } else { "complete" }.to_string(),
+            phase: if is_brotli {
+                "decompressing"
+            } else {
+                "complete"
+            }
+            .to_string(),
         });
 
         let data = if is_brotli {
