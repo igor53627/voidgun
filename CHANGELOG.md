@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `eth_sendTransaction` intercepts simple transfers as unshield operations
     - `personal_sign` triggers key derivation when signing domain message
   - Binary `voidgun-proxy` with CLI for running standalone server
+  - Works with any Ethereum-compatible JSON-RPC endpoint (no reth dependency)
+  - Comprehensive unit tests (8 tests) and e2e tests against Tenderly VNet
 - `RailgunLane::for_chain()` convenience constructor with default paths and chain-specific addresses
 - WebSocket event streaming for real-time updates (closes #45)
   - New `ws` module with `RailgunWsClient` for WebSocket connections

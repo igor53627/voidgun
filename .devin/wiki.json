@@ -9,7 +9,7 @@
     "overview": "Voidgun provides privacy pool access through Railgun's battle-tested Groth16 circuits. Keys are derived deterministically from wallet signatures, enabling privacy without new seed phrases.",
     "crates": {
       "railgun-lane": "Complete Railgun protocol implementation - EdDSA signatures, Groth16 proofs, Merkle sync, note encryption",
-      "voidgun-proxy": "RPC proxy server for privacy-via-proxy - intercepts wallet RPC calls and routes through Railgun"
+      "voidgun-proxy": "Standalone RPC proxy server for privacy-via-proxy - intercepts wallet RPC calls and routes through Railgun (no reth dependency)"
     }
   },
   "voidgun_proxy_modules": {
@@ -77,9 +77,10 @@
     "step6": "Derive viewing key: m/420'/1984'/0'/0'"
   },
   "testing": {
-    "unit_tests": "cargo test -p railgun-lane",
+    "unit_tests": "cargo test -p railgun-lane && cargo test -p voidgun-proxy",
     "proof_generation": "cargo test -p railgun-lane --test proof_generation -- --ignored",
-    "e2e_tenderly": "cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture",
+    "e2e_lane": "cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture",
+    "e2e_proxy": "cargo test -p voidgun-proxy --test e2e_tenderly -- --ignored --nocapture",
     "proxy_tests": "cargo test -p voidgun-proxy",
     "requires": {
       "tenderly": "TENDERLY_ACCESS_KEY, TENDERLY_ACCOUNT, TENDERLY_PROJECT",

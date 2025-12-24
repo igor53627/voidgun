@@ -138,6 +138,8 @@ async fn main() {
 
 The `voidgun-proxy` crate provides a privacy-via-proxy RPC server that sits between your wallet and the Ethereum network. It intercepts JSON-RPC calls and routes privacy-related operations through the Railgun pool.
 
+`voidgun-proxy` is a **standalone binary**. It works with **any Ethereum-compatible JSON-RPC endpoint** (public providers, self-hosted nodes, or Tenderly VNet) via the `--upstream` flag. There is no dependency on reth or any execution-layer plugin.
+
 ### Usage
 
 ```bash
@@ -199,6 +201,7 @@ cargo run -p voidgun-proxy -- --upstream https://eth.llamarpc.com --chain-id 1
 
 # Run tests
 cargo test -p railgun-lane
+cargo test -p voidgun-proxy
 ```
 
 ## Testing
@@ -228,7 +231,12 @@ SEPOLIA_RPC_URL="https://sepolia.infura.io/v3/YOUR_KEY" \
 #   export TENDERLY_ACCESS_KEY="your-key"
 #   export TENDERLY_ACCOUNT="your-account"
 #   export TENDERLY_PROJECT="your-project"
+
+# Test railgun-lane protocol
 cargo test -p railgun-lane --test onchain_verification test_e2e_auto_vnet -- --ignored --nocapture
+
+# Test voidgun-proxy full stack
+cargo test -p voidgun-proxy --test e2e_tenderly -- --ignored --nocapture
 ```
 
 ## Protocol Visualization
