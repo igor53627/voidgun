@@ -60,14 +60,13 @@ impl UserContextStore {
         address: Address,
         signature: &[u8],
     ) -> ProxyResult<Arc<UserContext>> {
+        let signature_entropy = Self::derive_entropy(signature);
         let mut lane = RailgunLane::for_chain(chain_id, Some(self.rpc_url.clone()))
             .map_err(ProxyError::Lane)?;
 
-        lane.init(signature)
+        lane.init(&signature_entropy)
             .await
             .map_err(ProxyError::Lane)?;
-
-        let signature_entropy = Self::derive_entropy(signature);
         self.db
             .save_context(chain_id, address, &signature_entropy, 0)
             .await?;
@@ -110,6 +109,10 @@ impl UserContextStore {
 
     fn derive_entropy(signature: &[u8]) -> Vec<u8> {
         use sha3::{Digest, Keccak256};
-        Keccak256::digest(signature).to_vec()
+        let hash = Keccak256::digest(signature);
+        let mut entropy = Vec::with_capacity(64);
+        entropy.extend_from_slice(&hash);
+        entropy.extend_from_slice(&hash);
+        entropy
     }
 }

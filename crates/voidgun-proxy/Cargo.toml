@@ -50,3 +50,7 @@ sha3 = "0.10"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+httpmock = "0.7"
+tokio-tungstenite = "0.23"
+hyper = "1"
+futures-util = "0.3"
