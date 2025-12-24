@@ -29,6 +29,12 @@ impl Server {
     ) -> anyhow::Result<Self> {
         let db = Arc::new(Database::new(database_url).await?);
         let store = Arc::new(UserContextStore::new(db, upstream_url.clone()));
+
+        let restored = store.restore_from_db(chain_id).await.unwrap_or(0);
+        if restored > 0 {
+            tracing::info!("Restored {} user contexts from database", restored);
+        }
+
         let proxy = Arc::new(RpcProxy::new(store, upstream_url, chain_id));
 
         Ok(Self { proxy })
